@@ -58,6 +58,24 @@
           <strong>Prototype notes:</strong>
           this page needs HTTPS and camera permission on the phone. If the camera does not start automatically, tap <strong>Start Camera</strong>.
         </div>
+
+        <details class="wt-fit-panel" open>
+          <summary>Diagnostics Log</summary>
+          <div class="wt-log-wrap">
+            <div class="wt-button-row wt-button-row-small">
+              <button class="wt-btn" id="copy-log-btn" type="button">Copy Log</button>
+              <button class="wt-btn" id="clear-log-btn" type="button">Clear Log</button>
+            </div>
+            <div class="wt-metrics" id="metrics-box">
+              <div><strong>Delegate:</strong> <span id="metric-delegate">—</span></div>
+              <div><strong>Camera:</strong> <span id="metric-camera">—</span></div>
+              <div><strong>Video:</strong> <span id="metric-video">—</span></div>
+              <div><strong>Detections:</strong> <span id="metric-detections">0</span></div>
+              <div><strong>Last hand:</strong> <span id="metric-last-hand">—</span></div>
+            </div>
+            <pre class="wt-log" id="debug-log">Booting…</pre>
+          </div>
+        </details>
       </section>
 
       <section class="wt-stage-card">
@@ -77,6 +95,6 @@
     </main>
   </div>
 
-  <script type="module" src="./js/watch-tryon.js?v=watchtryon5"></script>
+  <script type="module" src="./js/watch-tryon.js?v=watchtryon6"></script>
 </body>
 </html>

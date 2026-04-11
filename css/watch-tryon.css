@@ -250,3 +250,41 @@ input {
     width: 100%;
   }
 }
+
+
+.wt-button-row-small {
+  margin-bottom: 10px;
+}
+
+.wt-log-wrap {
+  padding: 0 0 16px;
+}
+
+.wt-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.wt-metrics strong {
+  color: var(--text);
+}
+
+.wt-log {
+  margin: 0;
+  min-height: 180px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 12px;
+  background: #121212;
+  color: #d8ead2;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: Consolas, Monaco, monospace;
+}

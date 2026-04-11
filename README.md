@@ -1,15 +1,22 @@
-# Watch Try-On Full V4 Detection Aid
+# Watch Try-On Full V5 Logging
 
-This version is meant to make wrist detection easier to debug.
+This version is focused on diagnosis.
 
-## Changes
-- Starts with the rear camera by default
-- Shows landmarks by default
-- Lower hand detection thresholds
-- Slightly increases default watch size
-- Stronger hints for how to present the hand to the camera
+## What changed
+- Added visible on-screen log
+- Added copy log / clear log buttons
+- Added metrics for:
+  - delegate
+  - camera
+  - video resolution
+  - detections count
+  - last hand
+- Added GPU -> CPU fallback log
+- Keeps rear camera and landmarks enabled by default
 
-## Important
-This version is specifically for diagnosing why the watch is not appearing.
-If you can see landmarks on the hand but no watch, the issue is fit/placement.
-If you cannot see landmarks, the issue is hand detection.
+## Goal
+Use this version to understand whether the problem is:
+- library boot
+- camera start
+- MediaPipe hand detection
+- fit/placement after detection

@@ -9,6 +9,8 @@ const stageEl = document.getElementById('stage');
 const startCameraBtn = document.getElementById('start-camera-btn');
 const switchCameraBtn = document.getElementById('switch-camera-btn');
 const toggleDebugBtn = document.getElementById('toggle-debug-btn');
+const copyLogBtn = document.getElementById('copy-log-btn');
+const clearLogBtn = document.getElementById('clear-log-btn');
 
 const watchScaleSlider = document.getElementById('watch-scale-slider');
 const rotationOffsetSlider = document.getElementById('rotation-offset-slider');
@@ -20,10 +22,17 @@ const wristOffsetOutput = document.getElementById('wrist-offset-output');
 
 const statusPill = document.getElementById('status-pill');
 const hintText = document.getElementById('hint-text');
+const debugLog = document.getElementById('debug-log');
+
+const metricDelegate = document.getElementById('metric-delegate');
+const metricCamera = document.getElementById('metric-camera');
+const metricVideo = document.getElementById('metric-video');
+const metricDetections = document.getElementById('metric-detections');
+const metricLastHand = document.getElementById('metric-last-hand');
 
 const state = {
   facingMode: 'environment',
-  mirrorPreview: true,
+  mirrorPreview: false,
   stream: null,
   animationHandle: 0,
   debug: true,
@@ -39,17 +48,18 @@ const state = {
   lastDetectionTime: 0,
   smoothed: null,
   detectionMisses: 0,
-  booted: false,
   libs: null,
+  delegate: '—',
+  logLines: [],
+  detections: 0,
+  lastHandText: '—',
 };
 
 debugCanvas.hidden = false;
-setStatus('Booting watch try-on…');
-setHint('Preparing camera and tracking libraries.');
-
 watchScaleOutput.textContent = Number(watchScaleSlider.value).toFixed(2);
 rotationOffsetOutput.textContent = `${rotationOffsetSlider.value}°`;
 wristOffsetOutput.textContent = Number(wristOffsetSlider.value).toFixed(2);
+metricDetections.textContent = '0';
 
 watchScaleSlider.addEventListener('input', () => {
   watchScaleOutput.textContent = Number(watchScaleSlider.value).toFixed(2);
@@ -65,39 +75,71 @@ toggleDebugBtn.addEventListener('click', () => {
   state.debug = !state.debug;
   debugCanvas.hidden = !state.debug;
   toggleDebugBtn.textContent = state.debug ? 'Hide Landmarks' : 'Show Landmarks';
-  debugCanvas.hidden = !state.debug;
+  logLine(`Debug landmarks: ${state.debug ? 'ON' : 'OFF'}`);
+});
+
+copyLogBtn?.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(state.logLines.join('\n'));
+    logLine('Log copied to clipboard.');
+  } catch (error) {
+    logLine(`Copy log failed: ${error?.message || error}`);
+  }
+});
+
+clearLogBtn?.addEventListener('click', () => {
+  state.logLines = [];
+  renderLog();
+  logLine('Log cleared.');
 });
 
 switchCameraBtn.addEventListener('click', async () => {
   try {
     state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
+    logLine(`Switch camera requested. New facingMode=${state.facingMode}`);
     await startCamera();
   } catch (error) {
     console.error(error);
     setStatus('Could not switch camera');
     setHint(error?.message || 'Camera switch failed.');
+    logLine(`Switch camera failed: ${error?.message || error}`);
   }
 });
 
 startCameraBtn.addEventListener('click', async () => {
   try {
+    logLine('Manual Start Camera click.');
     await startCamera();
   } catch (error) {
     console.error(error);
     setStatus('Could not start camera');
     setHint(error?.message || 'Camera start failed. Check browser permission and reload the page.');
+    logLine(`Start camera failed: ${error?.message || error}`);
   }
 });
 
 window.addEventListener('resize', resizeStage);
+window.addEventListener('error', (event) => {
+  logLine(`window.error: ${event.message} @ ${event.filename}:${event.lineno}`);
+});
+window.addEventListener('unhandledrejection', (event) => {
+  logLine(`unhandledrejection: ${event.reason?.message || event.reason || 'unknown reason'}`);
+});
+
+setStatus('Booting watch try-on…');
+setHint('Preparing camera and tracking libraries.');
+logLine(`Secure context: ${window.isSecureContext}`);
+logLine(`User agent: ${navigator.userAgent}`);
 
 boot().catch((error) => {
   console.error(error);
   setStatus('Watch try-on failed to load');
   setHint(error?.message || 'Boot failed before camera start.');
+  logLine(`Boot failed: ${error?.message || error}`);
 });
 
 async function boot() {
+  logLine('Boot start.');
   const [
     THREE,
     { GLTFLoader },
@@ -108,6 +150,7 @@ async function boot() {
     import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm'),
   ]);
 
+  logLine('Libraries imported.');
   state.libs = {
     THREE,
     GLTFLoader,
@@ -119,40 +162,66 @@ async function boot() {
   await loadWatchModel();
   await initHandLandmarker();
 
-  state.booted = true;
   setStatus('Ready to start camera');
-  setHint('Tap Start Camera. Then hold your wrist in frame.');
+  setHint('Tap Start Camera. Then show your full hand and wrist.');
+  logLine('Boot finished.');
 
   try {
+    logLine('Trying auto camera start.');
     await startCamera();
   } catch (error) {
     console.error(error);
     setStatus('Ready to start camera');
-    setHint(error?.message || 'Tap Start Camera. Then hold your wrist in frame.');
+    setHint('Tap Start Camera. Then show your full hand and wrist.');
+    logLine(`Auto camera start failed: ${error?.message || error}`);
   }
 }
 
 async function initHandLandmarker() {
   setStatus('Loading hand tracker…');
+  logLine('Loading MediaPipe hand tracker.');
+
   const vision = await state.libs.FilesetResolver.forVisionTasks(
     'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm'
   );
 
-  state.handLandmarker = await state.libs.HandLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath: HAND_MODEL_URL,
-      delegate: 'GPU',
-    },
-    runningMode: 'VIDEO',
-    numHands: 1,
-    minHandDetectionConfidence: 0.45,
-    minHandPresenceConfidence: 0.45,
-    minTrackingConfidence: 0.45,
-  });
+  try {
+    state.handLandmarker = await state.libs.HandLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: HAND_MODEL_URL,
+        delegate: 'GPU',
+      },
+      runningMode: 'VIDEO',
+      numHands: 1,
+      minHandDetectionConfidence: 0.45,
+      minHandPresenceConfidence: 0.45,
+      minTrackingConfidence: 0.45,
+    });
+    state.delegate = 'GPU';
+    metricDelegate.textContent = 'GPU';
+    logLine('Hand tracker initialized with GPU.');
+  } catch (gpuError) {
+    logLine(`GPU delegate failed: ${gpuError?.message || gpuError}`);
+    state.handLandmarker = await state.libs.HandLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: HAND_MODEL_URL,
+        delegate: 'CPU',
+      },
+      runningMode: 'VIDEO',
+      numHands: 1,
+      minHandDetectionConfidence: 0.45,
+      minHandPresenceConfidence: 0.45,
+      minTrackingConfidence: 0.45,
+    });
+    state.delegate = 'CPU';
+    metricDelegate.textContent = 'CPU';
+    logLine('Hand tracker initialized with CPU fallback.');
+  }
 }
 
 function setupThree() {
   const THREE = state.libs.THREE;
+  logLine('Setting up Three.js scene.');
 
   state.renderer = new THREE.WebGLRenderer({
     canvas: threeCanvas,
@@ -182,6 +251,7 @@ function setupThree() {
 
 async function loadWatchModel() {
   setStatus('Loading watch model…');
+  logLine(`Loading watch model from ${WATCH_MODEL_PATH}`);
   const THREE = state.libs.THREE;
   const loader = new state.libs.GLTFLoader();
 
@@ -207,10 +277,15 @@ async function loadWatchModel() {
 
         state.scene.add(root);
         state.modelLoaded = true;
+
+        logLine(`Watch model loaded. Size = ${size.x.toFixed(4)} x ${size.y.toFixed(4)} x ${size.z.toFixed(4)}`);
         resolve();
       },
       undefined,
-      reject
+      (error) => {
+        logLine(`Watch model failed to load: ${error?.message || error}`);
+        reject(error);
+      }
     );
   });
 }
@@ -227,6 +302,7 @@ async function startCamera() {
   stopCamera();
   setStatus('Starting camera…');
   setHint('Allow camera permission to continue.');
+  logLine(`Starting camera. facingMode=${state.facingMode}`);
 
   const preferredConstraints = [
     {
@@ -251,10 +327,12 @@ async function startCamera() {
 
   for (const constraints of preferredConstraints) {
     try {
+      logLine(`Trying getUserMedia with constraints: ${JSON.stringify(constraints)}`);
       stream = await navigator.mediaDevices.getUserMedia(constraints);
       break;
     } catch (error) {
       lastError = error;
+      logLine(`getUserMedia attempt failed: ${error?.name || 'Error'} - ${error?.message || error}`);
     }
   }
 
@@ -266,12 +344,17 @@ async function startCamera() {
   videoEl.srcObject = stream;
   await videoEl.play();
 
+  const settings = stream.getVideoTracks()[0]?.getSettings?.() || {};
+  metricCamera.textContent = settings.facingMode || state.facingMode;
+  metricVideo.textContent = `${settings.width || videoEl.videoWidth || '?'} x ${settings.height || videoEl.videoHeight || '?'}`;
+  logLine(`Camera started. settings=${JSON.stringify(settings)}`);
+
   state.mirrorPreview = state.facingMode === 'user';
   videoEl.style.transform = state.mirrorPreview ? 'scaleX(-1)' : 'none';
 
   resizeStage();
   setStatus('Camera started');
-  setHint('Show your full hand and wrist. Keep fingers slightly apart, with good light. Landmarks are on by default for debugging.');
+  setHint('Show your full hand plus wrist, with fingers visible and good light.');
 
   cancelAnimationFrame(state.animationHandle);
   state.lastVideoTime = -1;
@@ -285,6 +368,7 @@ function stopCamera() {
   if (state.stream) {
     state.stream.getTracks().forEach((track) => track.stop());
     state.stream = null;
+    logLine('Previous camera stream stopped.');
   }
 
   videoEl.srcObject = null;
@@ -351,6 +435,10 @@ function processResults(results) {
       state.modelRoot.visible = false;
     }
 
+    if (state.detectionMisses === 1 || state.detectionMisses === 10 || state.detectionMisses === 30) {
+      logLine(`No hand detected. misses=${state.detectionMisses}`);
+    }
+
     if (state.detectionMisses > 10) {
       setStatus('No wrist detected');
       setHint('Show your full hand plus wrist, not just the wrist area. Keep fingers visible and use good light.');
@@ -359,9 +447,13 @@ function processResults(results) {
   }
 
   state.detectionMisses = 0;
+  state.detections += 1;
+  metricDetections.textContent = String(state.detections);
 
   const landmarks = results.landmarks[0];
   const handedness = results.handedness?.[0]?.[0]?.categoryName || 'Hand';
+  state.lastHandText = handedness;
+  metricLastHand.textContent = handedness;
 
   const wrist = mapLandmark(landmarks[0]);
   const middle = mapLandmark(landmarks[9]);
@@ -408,6 +500,7 @@ function processResults(results) {
 
   if (!state.smoothed) {
     state.smoothed = { ...smoothedTarget };
+    logLine(`First hand detected. handWidth=${handWidth.toFixed(2)} scale=${targetScale.toFixed(2)}`);
   } else {
     const lerpAlpha = 0.28;
     state.smoothed.x = lerp(state.smoothed.x, smoothedTarget.x, lerpAlpha);
@@ -479,7 +572,7 @@ function mapLandmark(lm) {
 function drawDebug(ctx, landmarks, highlightIndices = []) {
   ctx.save();
   ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(207, 220, 122, 0.9)';
+  ctx.strokeStyle = 'rgba(207, 220, 122, 0.95)';
 
   const connections = [
     [0,1],[1,2],[2,3],[3,4],
@@ -501,8 +594,8 @@ function drawDebug(ctx, landmarks, highlightIndices = []) {
   landmarks.forEach((lm, i) => {
     const p = mapLandmark(lm);
     ctx.beginPath();
-    ctx.arc(p.x, p.y, highlightIndices.includes(i) ? 6 : 4, 0, Math.PI * 2);
-    ctx.fillStyle = highlightIndices.includes(i) ? 'rgba(255, 221, 0, 0.95)' : 'rgba(255,255,255,0.9)';
+    ctx.arc(p.x, p.y, highlightIndices.includes(i) ? 7 : 4, 0, Math.PI * 2);
+    ctx.fillStyle = highlightIndices.includes(i) ? 'rgba(255, 221, 0, 0.98)' : 'rgba(255,255,255,0.95)';
     ctx.fill();
   });
 
@@ -515,6 +608,24 @@ function setStatus(text) {
 
 function setHint(text) {
   if (hintText) hintText.textContent = text;
+}
+
+function logLine(text) {
+  const timestamp = new Date().toLocaleTimeString();
+  const line = `[${timestamp}] ${text}`;
+  console.log(line);
+  state.logLines.push(line);
+  if (state.logLines.length > 120) {
+    state.logLines = state.logLines.slice(-120);
+  }
+  renderLog();
+}
+
+function renderLog() {
+  if (debugLog) {
+    debugLog.textContent = state.logLines.join('\n');
+    debugLog.scrollTop = debugLog.scrollHeight;
+  }
 }
 
 function normalizeVec(v) {
