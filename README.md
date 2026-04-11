@@ -1,14 +1,15 @@
-# Watch Try-On Full V3 Safe Boot
+# Watch Try-On Full V4 Detection Aid
 
-This version avoids silent module boot failures.
+This version is meant to make wrist detection easier to debug.
 
-## Main changes
-- Removed the import map
-- Replaced top-level ES module imports with dynamic imports
-- Uses `esm.sh` for `three` and `GLTFLoader`
-- If any library import fails, the page now shows a visible status/hint error instead of doing nothing
-- Bumped the watch try-on JS version query string to avoid stale cache
+## Changes
+- Starts with the rear camera by default
+- Shows landmarks by default
+- Lower hand detection thresholds
+- Slightly increases default watch size
+- Stronger hints for how to present the hand to the camera
 
-## Files changed
-- `watch-tryon.html`
-- `js/watch-tryon.js`
+## Important
+This version is specifically for diagnosing why the watch is not appearing.
+If you can see landmarks on the hand but no watch, the issue is fit/placement.
+If you cannot see landmarks, the issue is hand detection.

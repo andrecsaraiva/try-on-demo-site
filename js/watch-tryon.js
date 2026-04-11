@@ -22,11 +22,11 @@ const statusPill = document.getElementById('status-pill');
 const hintText = document.getElementById('hint-text');
 
 const state = {
-  facingMode: 'user',
+  facingMode: 'environment',
   mirrorPreview: true,
   stream: null,
   animationHandle: 0,
-  debug: false,
+  debug: true,
   modelLoaded: false,
   modelRoot: null,
   modelContent: null,
@@ -43,6 +43,7 @@ const state = {
   libs: null,
 };
 
+debugCanvas.hidden = false;
 setStatus('Booting watch try-on…');
 setHint('Preparing camera and tracking libraries.');
 
@@ -64,6 +65,7 @@ toggleDebugBtn.addEventListener('click', () => {
   state.debug = !state.debug;
   debugCanvas.hidden = !state.debug;
   toggleDebugBtn.textContent = state.debug ? 'Hide Landmarks' : 'Show Landmarks';
+  debugCanvas.hidden = !state.debug;
 });
 
 switchCameraBtn.addEventListener('click', async () => {
@@ -143,9 +145,9 @@ async function initHandLandmarker() {
     },
     runningMode: 'VIDEO',
     numHands: 1,
-    minHandDetectionConfidence: 0.65,
-    minHandPresenceConfidence: 0.65,
-    minTrackingConfidence: 0.65,
+    minHandDetectionConfidence: 0.45,
+    minHandPresenceConfidence: 0.45,
+    minTrackingConfidence: 0.45,
   });
 }
 
@@ -269,7 +271,7 @@ async function startCamera() {
 
   resizeStage();
   setStatus('Camera started');
-  setHint('Show the top side of your wrist. Keep it well lit and steady.');
+  setHint('Show your full hand and wrist. Keep fingers slightly apart, with good light. Landmarks are on by default for debugging.');
 
   cancelAnimationFrame(state.animationHandle);
   state.lastVideoTime = -1;
@@ -351,7 +353,7 @@ function processResults(results) {
 
     if (state.detectionMisses > 10) {
       setStatus('No wrist detected');
-      setHint('Show one wrist clearly to the camera. Good light helps a lot.');
+      setHint('Show your full hand plus wrist, not just the wrist area. Keep fingers visible and use good light.');
     }
     return;
   }
@@ -386,7 +388,7 @@ function processResults(results) {
     state.modelSize.y || 1,
     state.modelSize.z || 1
   );
-  const desiredScreenSize = handWidth * Number(watchScaleSlider.value);
+  const desiredScreenSize = handWidth * Number(watchScaleSlider.value) * 1.35;
   const targetScale = Math.max(12, desiredScreenSize) / sizeReference;
 
   const zBetweenKnuckles = (landmarks[5].z - landmarks[17].z);
