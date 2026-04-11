@@ -1,22 +1,17 @@
-# Watch Try-On Full V5 Logging
+# Watch Try-On Full V6 MediaPipe Fix
 
-This version is focused on diagnosis.
+This version fixes the exact boot failure shown in the log.
 
-## What changed
-- Added visible on-screen log
-- Added copy log / clear log buttons
-- Added metrics for:
-  - delegate
-  - camera
-  - video resolution
-  - detections count
-  - last hand
-- Added GPU -> CPU fallback log
-- Keeps rear camera and landmarks enabled by default
+## Problem found
+The page failed on this dynamic import:
+`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm`
 
-## Goal
-Use this version to understand whether the problem is:
-- library boot
-- camera start
-- MediaPipe hand detection
-- fit/placement after detection
+## Fix
+Switched the MediaPipe import to:
+`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs`
+
+## Files changed
+- `watch-tryon.html`
+- `js/watch-tryon.js`
+
+Everything else remains the same as V5.

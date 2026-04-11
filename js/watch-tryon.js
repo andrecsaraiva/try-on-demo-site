@@ -140,6 +140,7 @@ boot().catch((error) => {
 
 async function boot() {
   logLine('Boot start.');
+  logLine('Trying MediaPipe from vision_bundle.mjs');
   const [
     THREE,
     { GLTFLoader },
@@ -147,7 +148,7 @@ async function boot() {
   ] = await Promise.all([
     import('https://esm.sh/three@0.174.0'),
     import('https://esm.sh/three@0.174.0/examples/jsm/loaders/GLTFLoader'),
-    import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm'),
+    import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs'),
   ]);
 
   logLine('Libraries imported.');
