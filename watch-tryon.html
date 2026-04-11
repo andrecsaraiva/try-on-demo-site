@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Watch Try-On</title>
+  <meta
+    name="description"
+    content="Prototype watch try-on using wrist tracking on the phone camera."
+  />
+  <link rel="stylesheet" href="./css/watch-tryon.css" />
+</head>
+<body>
+  <div class="wt-app">
+    <header class="wt-topbar">
+      <div>
+        <div class="wt-eyebrow">Watch Try-On</div>
+        <h1 class="wt-title">Test the watch on your wrist</h1>
+        <p class="wt-subtitle">
+          This is a dedicated watch try-on prototype. It uses hand tracking from the live camera feed and overlays the watch model on the wrist.
+        </p>
+      </div>
+    </header>
+
+    <main class="wt-main">
+      <section class="wt-stage-card">
+        <div class="wt-stage" id="stage">
+          <video id="camera-video" playsinline autoplay muted></video>
+          <canvas id="three-canvas"></canvas>
+          <canvas id="debug-canvas" hidden></canvas>
+
+          <div class="wt-overlay">
+            <div class="wt-status" id="status-pill">Waiting to start camera…</div>
+            <div class="wt-hint" id="hint-text">
+              Hold your wrist in frame. Keep your hand well lit and steady.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="wt-controls-card">
+        <div class="wt-button-row">
+          <button class="wt-btn wt-btn-primary" id="start-camera-btn" type="button">Start Camera</button>
+          <button class="wt-btn" id="switch-camera-btn" type="button">Switch Camera</button>
+          <button class="wt-btn" id="toggle-debug-btn" type="button">Show Landmarks</button>
+        </div>
+
+        <details class="wt-fit-panel">
+          <summary>Developer Fit Controls</summary>
+
+          <div class="wt-sliders">
+            <label class="wt-slider">
+              <span>Watch Size</span>
+              <input id="watch-scale-slider" type="range" min="0.55" max="1.8" step="0.01" value="1.00" />
+              <output id="watch-scale-output">1.00</output>
+            </label>
+
+            <label class="wt-slider">
+              <span>Rotation Offset</span>
+              <input id="rotation-offset-slider" type="range" min="-180" max="180" step="1" value="90" />
+              <output id="rotation-offset-output">90°</output>
+            </label>
+
+            <label class="wt-slider">
+              <span>Wrist Offset</span>
+              <input id="wrist-offset-slider" type="range" min="0.00" max="0.70" step="0.01" value="0.22" />
+              <output id="wrist-offset-output">0.22</output>
+            </label>
+          </div>
+        </details>
+
+        <div class="wt-note">
+          <strong>Prototype notes:</strong>
+          this page needs HTTPS and camera permission on the phone. The current version is a first working watch try-on prototype focused on wrist tracking and fit calibration.
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="./js/watch-tryon.js?v=watchtryon1"></script>
+</body>
+</html>

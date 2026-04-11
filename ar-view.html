@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AR Product Preview</title>
+  <meta name="description" content="Android AR product preview with Scene Viewer." />
+
+  <script
+    type="module"
+    src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"
+  ></script>
+
+  <style>
+    :root {
+      --bg: #f3f3ef;
+      --card: #ffffff;
+      --text: #1e1e1c;
+      --muted: #66665e;
+      --accent: #dce6a0;
+      --accent-strong: #cddc7b;
+      --border: #dfdfd8;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    .page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      padding: 16px 18px;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .subtitle {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 4px;
+      line-height: 1.45;
+    }
+
+    .shell {
+      width: 100%;
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      flex: 1;
+    }
+
+    .viewer-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 12px 34px rgba(0,0,0,0.06);
+    }
+
+    .hero-copy {
+      padding: 18px 18px 0 18px;
+    }
+
+    .hero-copy h1 {
+      margin: 0 0 8px 0;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .hero-copy p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 14px;
+    }
+
+    .cta-wrap {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .ar-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 58px;
+      border: 0;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #111;
+      font-size: 17px;
+      font-weight: 700;
+      text-decoration: none;
+      box-shadow: 0 8px 20px rgba(205,220,123,0.35);
+    }
+
+    .ar-button:active {
+      background: var(--accent-strong);
+    }
+
+    .small-note {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      text-align: center;
+    }
+
+    model-viewer {
+      width: 100%;
+      height: 58vh;
+      min-height: 420px;
+      background: var(--bg);
+      --poster-color: transparent;
+      display: block;
+    }
+
+    .note {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 16px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--muted);
+    }
+
+    .note strong {
+      color: var(--text);
+    }
+
+    .note code {
+      background: #f2f2ec;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="topbar">
+      <div class="title">AR Product Preview</div>
+      <div class="subtitle">Preview the model below, then tap the highlighted button to launch the camera experience on Android.</div>
+    </div>
+
+    <div class="shell">
+      <div class="viewer-card">
+        <div class="hero-copy">
+          <h1>Launch the camera to place the product in your space</h1>
+          <p>This page is only the preview step. The button below opens the Android AR viewer with plane detection and object placement.</p>
+        </div>
+
+        <div class="cta-wrap">
+          <a class="ar-button" id="open-scene-viewer-btn" href="#">Open Camera AR on Android</a>
+          <div class="small-note">If nothing happens, make sure you are on Android with AR support and open this page in Chrome.</div>
+        </div>
+
+        <model-viewer
+          id="preview-viewer"
+          src="./assets/models/bag.glb"
+          alt="AR preview model"
+          camera-controls
+          shadow-intensity="10"
+          shadow-softness="0.0"
+          exposure="1.25"
+          environment-image="./assets/hdr/studio.hdr"
+          interaction-prompt="none"
+          camera-orbit="0deg 75deg auto"
+          field-of-view="28deg"
+          loading="eager"
+          reveal="auto">
+        </model-viewer>
+      </div>
+
+      <div class="note">
+        <strong>Android:</strong> this page uses a native Scene Viewer launch for AR, which is better suited to stable surface placement and walk-around viewing than the current web AR behavior. The GLB file used is <code>assets/models/bag.glb</code>.
+      </div>
+
+      <div class="note">
+        <strong>iPhone / iPad:</strong> not enabled in this version. We can add a separate Quick Look path later with <code>bolsa.usdz</code>.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const button = document.getElementById('open-scene-viewer-btn');
+
+    function buildSceneViewerIntent() {
+      const modelUrl = new URL('./assets/models/bag.glb', window.location.href).href;
+      const fallbackUrl = encodeURIComponent(window.location.href);
+
+      return 'intent://arvr.google.com/scene-viewer/1.0?file='
+        + encodeURIComponent(modelUrl)
+        + '&mode=ar_only&resizable=true#Intent;scheme=https;package=com.google.ar.core;action=android.intent.action.VIEW;S.browser_fallback_url='
+        + fallbackUrl
+        + ';end;';
+    }
+
+    button.setAttribute('href', buildSceneViewerIntent());
+  </script>
+</body>
+</html>

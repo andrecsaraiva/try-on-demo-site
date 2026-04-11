@@ -1,0 +1,252 @@
+:root {
+  --bg: #f3f3ef;
+  --card: #ffffff;
+  --text: #1e1e1c;
+  --muted: #66665e;
+  --accent: #dce6a0;
+  --accent-strong: #cddc7b;
+  --border: #dfdfd8;
+  --danger: #7d2222;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+body {
+  overscroll-behavior: none;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.wt-app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.wt-topbar {
+  padding: 18px 18px 12px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+.wt-eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #4f5a3a;
+  margin-bottom: 8px;
+}
+
+.wt-title {
+  margin: 0 0 8px 0;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.wt-subtitle {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 14px;
+  max-width: 760px;
+}
+
+.wt-main {
+  width: min(100%, 980px);
+  margin: 0 auto;
+  padding: 18px;
+  display: grid;
+  gap: 16px;
+  flex: 1;
+}
+
+.wt-stage-card,
+.wt-controls-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 12px 34px rgba(0,0,0,0.06);
+}
+
+.wt-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  min-height: 62vh;
+  background: #111;
+  overflow: hidden;
+}
+
+#camera-video,
+#three-canvas,
+#debug-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#camera-video {
+  object-fit: cover;
+  background: #111;
+}
+
+#three-canvas,
+#debug-canvas {
+  pointer-events: none;
+}
+
+.wt-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.wt-status {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 5;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.92);
+  color: #222;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+}
+
+.wt-hint {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(17,17,17,0.62);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.5;
+  backdrop-filter: blur(4px);
+}
+
+.wt-controls-card {
+  padding: 16px;
+}
+
+.wt-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.wt-btn {
+  appearance: none;
+  border: 1px solid #d0d0c8;
+  background: #fff;
+  color: #111;
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.wt-btn:hover {
+  transform: translateY(-1px);
+  border-color: #b9b9b0;
+}
+
+.wt-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+.wt-fit-panel {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 0 14px;
+  margin-bottom: 14px;
+  background: #fafaf8;
+}
+
+.wt-fit-panel summary {
+  cursor: pointer;
+  padding: 14px 0;
+  font-weight: 700;
+}
+
+.wt-sliders {
+  display: grid;
+  gap: 14px;
+  padding: 0 0 16px;
+}
+
+.wt-slider {
+  display: grid;
+  gap: 8px;
+}
+
+.wt-slider span {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.wt-slider input {
+  width: 100%;
+}
+
+.wt-slider output {
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.wt-note {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.wt-note strong {
+  color: var(--text);
+}
+
+@media (max-width: 720px) {
+  .wt-title {
+    font-size: 24px;
+  }
+
+  .wt-main {
+    width: 100%;
+    padding: 12px;
+  }
+
+  .wt-stage {
+    min-height: 70vh;
+  }
+
+  .wt-btn {
+    width: 100%;
+  }
+}
