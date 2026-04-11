@@ -1,10 +1,5 @@
-import * as THREE from 'https://unpkg.com/three@0.174.0/build/three.module.js';
-import { GLTFLoader } from 'https://unpkg.com/three@0.174.0/examples/jsm/loaders/GLTFLoader.js';
-import { FilesetResolver, HandLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs';
-
 const WATCH_MODEL_PATH = './assets/models/relogio.glb';
 const HAND_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
-const TASKS_VERSION = '0.10.22';
 
 const videoEl = document.getElementById('camera-video');
 const threeCanvas = document.getElementById('three-canvas');
@@ -32,20 +27,24 @@ const state = {
   stream: null,
   animationHandle: 0,
   debug: false,
-  handLandmarker: null,
   modelLoaded: false,
   modelRoot: null,
   modelContent: null,
-  modelSize: new THREE.Vector3(1, 1, 1),
+  modelSize: null,
   renderer: null,
   scene: null,
   camera: null,
-  lightsReady: false,
+  handLandmarker: null,
   lastVideoTime: -1,
   lastDetectionTime: 0,
   smoothed: null,
   detectionMisses: 0,
+  booted: false,
+  libs: null,
 };
+
+setStatus('Booting watch try-on…');
+setHint('Preparing camera and tracking libraries.');
 
 watchScaleOutput.textContent = Number(watchScaleSlider.value).toFixed(2);
 rotationOffsetOutput.textContent = `${rotationOffsetSlider.value}°`;
@@ -90,35 +89,54 @@ startCameraBtn.addEventListener('click', async () => {
 
 window.addEventListener('resize', resizeStage);
 
-init().catch((error) => {
+boot().catch((error) => {
   console.error(error);
-  setStatus('Error loading watch try-on');
-  setHint(error?.message || 'Initialization failed.');
+  setStatus('Watch try-on failed to load');
+  setHint(error?.message || 'Boot failed before camera start.');
 });
 
-async function init() {
+async function boot() {
+  const [
+    THREE,
+    { GLTFLoader },
+    visionBundle,
+  ] = await Promise.all([
+    import('https://esm.sh/three@0.174.0'),
+    import('https://esm.sh/three@0.174.0/examples/jsm/loaders/GLTFLoader'),
+    import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm'),
+  ]);
+
+  state.libs = {
+    THREE,
+    GLTFLoader,
+    FilesetResolver: visionBundle.FilesetResolver,
+    HandLandmarker: visionBundle.HandLandmarker,
+  };
+
   setupThree();
   await loadWatchModel();
   await initHandLandmarker();
-  setStatus('Ready');
-  setHint('Trying to start camera automatically…');
+
+  state.booted = true;
+  setStatus('Ready to start camera');
+  setHint('Tap Start Camera. Then hold your wrist in frame.');
 
   try {
     await startCamera();
   } catch (error) {
     console.error(error);
     setStatus('Ready to start camera');
-    setHint('Tap Start Camera. Then hold your wrist in frame. If permission was denied, allow it in the browser settings.');
+    setHint(error?.message || 'Tap Start Camera. Then hold your wrist in frame.');
   }
 }
 
 async function initHandLandmarker() {
   setStatus('Loading hand tracker…');
-  const vision = await FilesetResolver.forVisionTasks(
-    `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VERSION}/wasm`
+  const vision = await state.libs.FilesetResolver.forVisionTasks(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm'
   );
 
-  state.handLandmarker = await HandLandmarker.createFromOptions(vision, {
+  state.handLandmarker = await state.libs.HandLandmarker.createFromOptions(vision, {
     baseOptions: {
       modelAssetPath: HAND_MODEL_URL,
       delegate: 'GPU',
@@ -132,6 +150,8 @@ async function initHandLandmarker() {
 }
 
 function setupThree() {
+  const THREE = state.libs.THREE;
+
   state.renderer = new THREE.WebGLRenderer({
     canvas: threeCanvas,
     alpha: true,
@@ -141,7 +161,6 @@ function setupThree() {
   state.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
   state.scene = new THREE.Scene();
-
   state.camera = new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 2000);
   state.camera.position.z = 1000;
 
@@ -156,14 +175,13 @@ function setupThree() {
   fill.position.set(-250, 120, 240);
   state.scene.add(fill);
 
-  state.lightsReady = true;
   resizeStage();
 }
 
 async function loadWatchModel() {
   setStatus('Loading watch model…');
-
-  const loader = new GLTFLoader();
+  const THREE = state.libs.THREE;
+  const loader = new state.libs.GLTFLoader();
 
   await new Promise((resolve, reject) => {
     loader.load(
@@ -183,11 +201,10 @@ async function loadWatchModel() {
 
         state.modelRoot = root;
         state.modelContent = content;
-        state.modelSize.copy(size);
+        state.modelSize = size;
 
         state.scene.add(root);
         state.modelLoaded = true;
-
         resolve();
       },
       undefined,
@@ -206,7 +223,6 @@ async function startCamera() {
   }
 
   stopCamera();
-
   setStatus('Starting camera…');
   setHint('Allow camera permission to continue.');
 
@@ -225,10 +241,7 @@ async function startCamera() {
         facingMode: state.facingMode,
       },
     },
-    {
-      audio: false,
-      video: true,
-    },
+    { audio: false, video: true },
   ];
 
   let stream = null;
@@ -276,6 +289,7 @@ function stopCamera() {
 }
 
 function resizeStage() {
+  if (!state.renderer || !state.camera) return;
   const rect = stageEl.getBoundingClientRect();
   const width = Math.max(1, Math.floor(rect.width));
   const height = Math.max(1, Math.floor(rect.height));
@@ -378,8 +392,8 @@ function processResults(results) {
   const zBetweenKnuckles = (landmarks[5].z - landmarks[17].z);
   const zAlongHand = (landmarks[9].z - landmarks[0].z);
 
-  const targetRotationY = THREE.MathUtils.clamp(zBetweenKnuckles * 8, -0.9, 0.9);
-  const targetRotationX = THREE.MathUtils.clamp(-0.45 + zAlongHand * 6, -1.0, 0.7);
+  const targetRotationY = clamp(zBetweenKnuckles * 8, -0.9, 0.9);
+  const targetRotationX = clamp(-0.45 + zAlongHand * 6, -1.0, 0.7);
 
   const smoothedTarget = {
     x: targetX,
@@ -394,12 +408,12 @@ function processResults(results) {
     state.smoothed = { ...smoothedTarget };
   } else {
     const lerpAlpha = 0.28;
-    state.smoothed.x = THREE.MathUtils.lerp(state.smoothed.x, smoothedTarget.x, lerpAlpha);
-    state.smoothed.y = THREE.MathUtils.lerp(state.smoothed.y, smoothedTarget.y, lerpAlpha);
-    state.smoothed.scale = THREE.MathUtils.lerp(state.smoothed.scale, smoothedTarget.scale, lerpAlpha);
+    state.smoothed.x = lerp(state.smoothed.x, smoothedTarget.x, lerpAlpha);
+    state.smoothed.y = lerp(state.smoothed.y, smoothedTarget.y, lerpAlpha);
+    state.smoothed.scale = lerp(state.smoothed.scale, smoothedTarget.scale, lerpAlpha);
     state.smoothed.rz = lerpAngle(state.smoothed.rz, smoothedTarget.rz, lerpAlpha);
-    state.smoothed.rx = THREE.MathUtils.lerp(state.smoothed.rx, smoothedTarget.rx, lerpAlpha);
-    state.smoothed.ry = THREE.MathUtils.lerp(state.smoothed.ry, smoothedTarget.ry, lerpAlpha);
+    state.smoothed.rx = lerp(state.smoothed.rx, smoothedTarget.rx, lerpAlpha);
+    state.smoothed.ry = lerp(state.smoothed.ry, smoothedTarget.ry, lerpAlpha);
   }
 
   placeWatch(state.smoothed);
@@ -415,7 +429,6 @@ function placeWatch(data) {
   if (!state.modelRoot) return;
 
   const rect = stageEl.getBoundingClientRect();
-
   state.modelRoot.visible = true;
   state.modelRoot.position.set(
     data.x - rect.width / 2,
@@ -465,7 +478,6 @@ function drawDebug(ctx, landmarks, highlightIndices = []) {
   ctx.save();
   ctx.lineWidth = 2;
   ctx.strokeStyle = 'rgba(207, 220, 122, 0.9)';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
 
   const connections = [
     [0,1],[1,2],[2,3],[3,4],
@@ -514,6 +526,14 @@ function distance(a, b) {
 
 function degToRad(v) {
   return (v * Math.PI) / 180;
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function clamp(v, min, max) {
+  return Math.min(max, Math.max(min, v));
 }
 
 function lerpAngle(a, b, t) {

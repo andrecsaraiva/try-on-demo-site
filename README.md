@@ -1,16 +1,14 @@
-# Watch Try-On Full V2 Fix
+# Watch Try-On Full V3 Safe Boot
 
-This version fixes the issue where the watch try-on page loaded but the Start Camera button appeared to do nothing.
+This version avoids silent module boot failures.
 
-## Main fixes
-- Added an import map for `three`
-- This allows `GLTFLoader.js` to resolve the bare `three` import correctly in the browser
-- Added automatic camera start attempt on page load
-- Added visible error messages if the camera fails
-- Moved the main controls above the stage so the Start Camera button is visible immediately
+## Main changes
+- Removed the import map
+- Replaced top-level ES module imports with dynamic imports
+- Uses `esm.sh` for `three` and `GLTFLoader`
+- If any library import fails, the page now shows a visible status/hint error instead of doing nothing
+- Bumped the watch try-on JS version query string to avoid stale cache
 
 ## Files changed
 - `watch-tryon.html`
 - `js/watch-tryon.js`
-
-Everything else remains the same as V1.
