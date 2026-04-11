@@ -180,7 +180,7 @@
 
         <model-viewer
           id="preview-viewer"
-          src="./assets/models/bag.glb"
+          src="./assets/models/relogio.glb"
           alt="AR preview model"
           camera-controls
           shadow-intensity="10"
@@ -196,7 +196,7 @@
       </div>
 
       <div class="note">
-        <strong>Android:</strong> this page uses a native Scene Viewer launch for AR, which is better suited to stable surface placement and walk-around viewing than the current web AR behavior. The GLB file used is <code>assets/models/bag.glb</code>.
+        <strong>Android:</strong> this page uses a native Scene Viewer launch for AR, which is better suited to stable surface placement and walk-around viewing than the current web AR behavior. The GLB file used is <code>assets/models/relogio.glb</code>.
       </div>
 
       <div class="note">
@@ -209,7 +209,7 @@
     const button = document.getElementById('open-scene-viewer-btn');
 
     function buildSceneViewerIntent() {
-      const modelUrl = new URL('./assets/models/bag.glb', window.location.href).href;
+      const modelUrl = new URL('./assets/models/relogio.glb', window.location.href).href;
       const fallbackUrl = encodeURIComponent(window.location.href);
 
       return 'intent://arvr.google.com/scene-viewer/1.0?file='
