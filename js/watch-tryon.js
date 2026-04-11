@@ -140,7 +140,7 @@ boot().catch((error) => {
 
 async function boot() {
   logLine('Boot start.');
-  logLine('Trying MediaPipe from vision_bundle.mjs');
+  logLine('Trying MediaPipe from UNPKG vision_bundle.mjs');
   const [
     THREE,
     { GLTFLoader },
@@ -148,7 +148,7 @@ async function boot() {
   ] = await Promise.all([
     import('https://esm.sh/three@0.174.0'),
     import('https://esm.sh/three@0.174.0/examples/jsm/loaders/GLTFLoader'),
-    import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs'),
+    import('https://unpkg.com/@mediapipe/tasks-vision@0.10.34/vision_bundle.mjs'),
   ]);
 
   logLine('Libraries imported.');
@@ -183,7 +183,7 @@ async function initHandLandmarker() {
   logLine('Loading MediaPipe hand tracker.');
 
   const vision = await state.libs.FilesetResolver.forVisionTasks(
-    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm'
+    'https://unpkg.com/@mediapipe/tasks-vision@0.10.34/wasm'
   );
 
   try {

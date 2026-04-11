@@ -1,17 +1,15 @@
-# Watch Try-On Full V6 MediaPipe Fix
+# Watch Try-On Full V7 UNPKG
 
-This version fixes the exact boot failure shown in the log.
+This version changes only the MediaPipe CDN.
 
-## Problem found
-The page failed on this dynamic import:
-`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm`
+## Why
+The logs showed the phone could not fetch MediaPipe from jsDelivr.
 
-## Fix
-Switched the MediaPipe import to:
-`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs`
+## What changed
+- MediaPipe import switched from jsDelivr to UNPKG
+- MediaPipe WASM root switched from jsDelivr to UNPKG
+- Cache-bust updated on `watch-tryon.html`
 
 ## Files changed
 - `watch-tryon.html`
 - `js/watch-tryon.js`
-
-Everything else remains the same as V5.
