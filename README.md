@@ -1,35 +1,16 @@
-# Watch Try-On Full V1
+# Watch Try-On Full V2 Fix
 
-This package keeps:
+This version fixes the issue where the watch try-on page loaded but the Start Camera button appeared to do nothing.
 
-- Page 1 with separate desktop buttons:
-  - AR
-  - Try-On Watch
-- Page 2 (`ar-view.html`) unchanged from your uploaded version
-- Your current `styles.css` unchanged
+## Main fixes
+- Added an import map for `three`
+- This allows `GLTFLoader.js` to resolve the bare `three` import correctly in the browser
+- Added automatic camera start attempt on page load
+- Added visible error messages if the camera fails
+- Moved the main controls above the stage so the Start Camera button is visible immediately
 
-And adds:
-
+## Files changed
 - `watch-tryon.html`
-- `css/watch-tryon.css`
 - `js/watch-tryon.js`
 
-## What the watch try-on does
-
-This first version is a working wrist-tracking prototype:
-- opens the phone camera
-- detects one hand / wrist
-- overlays the watch GLB on the wrist
-- includes developer fit sliders for:
-  - watch size
-  - rotation offset
-  - wrist offset
-- includes a debug landmark toggle
-
-## Files used
-- Watch model: `assets/models/relogio.glb`
-- AR page model stays whatever your current `ar-view.html` points to
-
-## Important
-- Camera pages require HTTPS to work on phones
-- The watch try-on page is a first functional prototype, not a production-grade tracker yet
+Everything else remains the same as V1.

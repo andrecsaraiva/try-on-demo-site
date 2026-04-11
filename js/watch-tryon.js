@@ -68,12 +68,24 @@ toggleDebugBtn.addEventListener('click', () => {
 });
 
 switchCameraBtn.addEventListener('click', async () => {
-  state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
-  await startCamera();
+  try {
+    state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
+    await startCamera();
+  } catch (error) {
+    console.error(error);
+    setStatus('Could not switch camera');
+    setHint(error?.message || 'Camera switch failed.');
+  }
 });
 
 startCameraBtn.addEventListener('click', async () => {
-  await startCamera();
+  try {
+    await startCamera();
+  } catch (error) {
+    console.error(error);
+    setStatus('Could not start camera');
+    setHint(error?.message || 'Camera start failed. Check browser permission and reload the page.');
+  }
 });
 
 window.addEventListener('resize', resizeStage);
@@ -89,7 +101,15 @@ async function init() {
   await loadWatchModel();
   await initHandLandmarker();
   setStatus('Ready');
-  setHint('Tap Start Camera. Then hold your wrist in frame.');
+  setHint('Trying to start camera automatically…');
+
+  try {
+    await startCamera();
+  } catch (error) {
+    console.error(error);
+    setStatus('Ready to start camera');
+    setHint('Tap Start Camera. Then hold your wrist in frame. If permission was denied, allow it in the browser settings.');
+  }
 }
 
 async function initHandLandmarker() {
@@ -177,6 +197,10 @@ async function loadWatchModel() {
 }
 
 async function startCamera() {
+  if (!window.isSecureContext) {
+    throw new Error('This page needs HTTPS to open the camera.');
+  }
+
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('Camera access is not available in this browser or context.');
   }

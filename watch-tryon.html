@@ -8,6 +8,14 @@
     name="description"
     content="Prototype watch try-on using wrist tracking on the phone camera."
   />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.174.0/build/three.module.js"
+      }
+    }
+  </script>
+
   <link rel="stylesheet" href="./css/watch-tryon.css" />
 </head>
 <body>
@@ -23,21 +31,6 @@
     </header>
 
     <main class="wt-main">
-      <section class="wt-stage-card">
-        <div class="wt-stage" id="stage">
-          <video id="camera-video" playsinline autoplay muted></video>
-          <canvas id="three-canvas"></canvas>
-          <canvas id="debug-canvas" hidden></canvas>
-
-          <div class="wt-overlay">
-            <div class="wt-status" id="status-pill">Waiting to start camera…</div>
-            <div class="wt-hint" id="hint-text">
-              Hold your wrist in frame. Keep your hand well lit and steady.
-            </div>
-          </div>
-        </div>
-      </section>
-
       <section class="wt-controls-card">
         <div class="wt-button-row">
           <button class="wt-btn wt-btn-primary" id="start-camera-btn" type="button">Start Camera</button>
@@ -71,7 +64,22 @@
 
         <div class="wt-note">
           <strong>Prototype notes:</strong>
-          this page needs HTTPS and camera permission on the phone. The current version is a first working watch try-on prototype focused on wrist tracking and fit calibration.
+          this page needs HTTPS and camera permission on the phone. If the camera does not start automatically, tap <strong>Start Camera</strong>.
+        </div>
+      </section>
+
+      <section class="wt-stage-card">
+        <div class="wt-stage" id="stage">
+          <video id="camera-video" playsinline autoplay muted></video>
+          <canvas id="three-canvas"></canvas>
+          <canvas id="debug-canvas" hidden></canvas>
+
+          <div class="wt-overlay">
+            <div class="wt-status" id="status-pill">Waiting to start camera…</div>
+            <div class="wt-hint" id="hint-text">
+              Hold your wrist in frame. Keep your hand well lit and steady.
+            </div>
+          </div>
         </div>
       </section>
     </main>
