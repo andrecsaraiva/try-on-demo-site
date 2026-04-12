@@ -1,19 +1,14 @@
-# Watch Try-On Corrective V10
+# Watch Try-On Rotation V11
 
-Focused only on the requested fixes:
-
-- return the watch anchor to the wrist
-- make the watch follow rotation better
-- keep scale variation mainly tied to camera distance
+Focused only on wrist rotation.
 
 ## What changed
-- anchor moved back to the wrist using the old working wrist-offset logic
-- stronger 3D wrist rotation from depth differences
-- softer but faster position/rotation smoothing
-- auto scale now uses a short median history and clamps, so it breathes less
-- no occlusion changes in this version
+- Keeps the v10 wrist anchor and scale logic
+- Replaces Euler wrist tilt with a 3D basis + quaternion orientation
+- Uses:
+  - along axis = wrist -> knuckles
+  - face normal = hand plane normal
+- Applies quaternion slerp for smoother arm-twist tracking
 
-## Files changed
-- `watch-tryon.html` (cache bust only)
-- `js/watch-tryon.js`
-- includes latest `assets/models/relogio.glb` if present
+## Goal
+The watch should stay in the wrist area and rotate more convincingly as the arm twists.

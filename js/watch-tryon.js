@@ -35,12 +35,18 @@ const CONFIG = {
   facingMode: 'environment',
   modelScaleTrim: 1.00,
   rollTrimDeg: 0,
-  wristOffsetTrim: 0.24,   // around the last working value
-  autoScaleFactor: 1.02,   // closer to true wrist width
+  wristOffsetTrim: 0.24,
+  autoScaleFactor: 1.02,
   keepVisibleMisses: 12,
   hideAfterMisses: 24,
   minScalePx: 70,
   maxScalePx: 220,
+  // rotation only
+  rotSlerpStable: 0.20,
+  rotSlerpFast: 0.34,
+  posAlphaStable: 0.22,
+  posAlphaFast: 0.34,
+  scaleAlpha: 0.10,
 };
 
 const state = {
@@ -63,6 +69,10 @@ const state = {
   lastHandText: '—',
   misses: 0,
   pose: null,
+  targetQuat: null,
+  correctionQuat: null,
+  tmpQuat: null,
+  tmpMat4: null,
   started: false,
   mirrorPreview: false,
   logLines: [],
@@ -167,6 +177,16 @@ async function boot() {
     FilesetResolver: visionBundle.FilesetResolver,
     HandLandmarker: visionBundle.HandLandmarker,
   };
+
+  state.targetQuat = new THREE.Quaternion();
+  state.tmpQuat = new THREE.Quaternion();
+  state.tmpMat4 = new THREE.Matrix4();
+
+  // Correction quaternion:
+  // local X = bracelet length axis
+  // local Z = watch face normal
+  // rotate around local X by optional slider trim later via target basis
+  state.correctionQuat = new THREE.Quaternion(); // identity for now
 
   setupThree();
   await loadWatchModel();
@@ -308,10 +328,7 @@ async function startCamera() {
         height: { ideal: 720 },
       },
     },
-    {
-      audio: false,
-      video: { facingMode: CONFIG.facingMode },
-    },
+    { audio: false, video: { facingMode: CONFIG.facingMode } },
     { audio: false, video: true },
   ];
 
@@ -432,21 +449,13 @@ function processResults(results) {
   state.lastHandText = handedness;
   metricLastHand.textContent = handedness;
 
+  // 2D points for anchor/scale
   const wrist2 = mapLandmark(landmarks[0]);
   const index2 = mapLandmark(landmarks[5]);
   const pinky2 = mapLandmark(landmarks[17]);
-  const middle2 = mapLandmark(landmarks[9]);
-
-  const wrist3 = toCameraSpacePoint(landmarks[0]);
-  const index3 = toCameraSpacePoint(landmarks[5]);
-  const pinky3 = toCameraSpacePoint(landmarks[17]);
-  const middle3 = toCameraSpacePoint(landmarks[9]);
-
   const knuckleMid2 = avgVec2(index2, pinky2);
   const along2 = normVec2(subVec2(knuckleMid2, wrist2));
-  const across2 = normVec2(subVec2(pinky2, index2));
 
-  // Anchor BACK TO THE WRIST, not the center of the hand
   const handWidthPxRaw = dist2(index2, pinky2);
   state.widthHistory.push(handWidthPxRaw);
   if (state.widthHistory.length > 6) state.widthHistory.shift();
@@ -458,22 +467,42 @@ function processResults(results) {
     y: wrist2.y - along2.y * wristOffsetPx,
   };
 
-  // Roll from wrist -> knuckle direction
-  const roll = -Math.atan2(along2.y, along2.x) + degToRad(CONFIG.rollTrimDeg);
+  // 3D points for rotation
+  const wrist3 = toSceneVec3(landmarks[0]);
+  const index3 = toSceneVec3(landmarks[5]);
+  const pinky3 = toSceneVec3(landmarks[17]);
+  const knuckleMid3 = avgVec3(index3, pinky3);
 
-  // Stronger 3D rotation from depth variation
-  const zAcross = (index3.z - pinky3.z);
-  const zAlong = (middle3.z - wrist3.z);
+  // basis vectors
+  const along3 = subVec3(knuckleMid3, wrist3).normalize();   // wrist -> fingers
+  let across3 = subVec3(pinky3, index3).normalize();         // index -> pinky
+  let normal3 = new state.libs.THREE.Vector3().crossVectors(across3, along3).normalize(); // outward hand normal-ish
 
-  let yaw = clamp(zAcross * 7.0, -0.95, 0.95);
-  let pitch = clamp(-0.28 + zAlong * 5.0, -0.95, 0.65);
-
-  // Correct left/right handedness so crown side feels more coherent
-  if (handedness.toLowerCase().includes('left')) {
-    yaw *= -1;
+  // Make the face point outward more consistently.
+  // If normal points away from camera, flip it so the watch rotates with hand flip.
+  // Scene camera looks towards -Z from +Z, so "towards camera" is +Z-ish.
+  if (normal3.z < 0) {
+    normal3.multiplyScalar(-1);
+    across3.multiplyScalar(-1);
   }
 
-  // Scale should mostly vary with distance to camera
+  // Build orthonormal basis:
+  // local X = bracelet direction (towards fingers)
+  // local Z = watch face normal
+  // local Y = completes the basis
+  const xAxis = along3.clone();
+  const zAxis = normal3.clone();
+  const yAxis = new state.libs.THREE.Vector3().crossVectors(zAxis, xAxis).normalize();
+  zAxis.copy(new state.libs.THREE.Vector3().crossVectors(xAxis, yAxis).normalize());
+
+  state.tmpMat4.makeBasis(xAxis, yAxis, zAxis);
+  state.targetQuat.setFromRotationMatrix(state.tmpMat4);
+
+  // Fine roll trim around bracelet axis (local X)
+  state.tmpQuat.setFromAxisAngle(new state.libs.THREE.Vector3(1, 0, 0), degToRad(CONFIG.rollTrimDeg));
+  state.targetQuat.multiply(state.tmpQuat);
+  state.targetQuat.multiply(state.correctionQuat);
+
   const desiredWidthPx = clamp(stableHandWidth * CONFIG.autoScaleFactor * CONFIG.modelScaleTrim, CONFIG.minScalePx, CONFIG.maxScalePx);
   const targetScale = desiredWidthPx / Math.max(state.modelRefSize, 0.001);
 
@@ -481,43 +510,38 @@ function processResults(results) {
     x: anchor2.x,
     y: anchor2.y,
     scale: targetScale,
-    rx: pitch,
-    ry: yaw,
-    rz: roll,
   };
 
   if (!state.pose) {
     state.pose = { ...target };
+    state.modelRoot.quaternion.copy(state.targetQuat);
     logLine(`First hand detected. width=${handWidthPxRaw.toFixed(2)} stable=${stableHandWidth.toFixed(2)} scale=${targetScale.toFixed(2)}`);
   } else {
     const movement = Math.hypot(target.x - state.pose.x, target.y - state.pose.y);
     const fast = movement > 22;
 
-    const posAlpha = fast ? 0.34 : 0.22;
-    const rotAlpha = fast ? 0.30 : 0.18;
-    const scaleAlpha = 0.10;
+    const posAlpha = fast ? CONFIG.posAlphaFast : CONFIG.posAlphaStable;
+    const rotAlpha = fast ? CONFIG.rotSlerpFast : CONFIG.rotSlerpStable;
 
     state.pose.x = lerp(state.pose.x, target.x, posAlpha);
     state.pose.y = lerp(state.pose.y, target.y, posAlpha);
-    state.pose.scale = lerp(state.pose.scale, target.scale, scaleAlpha);
-    state.pose.rx = lerp(state.pose.rx, target.rx, rotAlpha);
-    state.pose.ry = lerp(state.pose.ry, target.ry, rotAlpha);
-    state.pose.rz = lerpAngle(state.pose.rz, target.rz, rotAlpha);
+    state.pose.scale = lerp(state.pose.scale, target.scale, CONFIG.scaleAlpha);
+
+    state.modelRoot.quaternion.slerp(state.targetQuat, rotAlpha);
   }
 
   placeWatch(state.pose);
   setStatus(`${handedness} wrist detected`);
-  setHint('Move slowly. The watch should stay anchored closer to the wrist now.');
+  setHint('Move slowly. Rotation should now follow the arm twist more closely.');
 
   if (state.debug && debugCtx) {
-    drawDebug(debugCtx, landmarks, [0, 5, 9, 17]);
-      // visualize wrist anchor
-      debugCtx.save();
-      debugCtx.fillStyle = 'rgba(0, 220, 255, 0.95)';
-      debugCtx.beginPath();
-      debugCtx.arc(anchor2.x, anchor2.y, 6, 0, Math.PI * 2);
-      debugCtx.fill();
-      debugCtx.restore();
+    drawDebug(debugCtx, landmarks, [0, 5, 17]);
+    debugCtx.save();
+    debugCtx.fillStyle = 'rgba(0, 220, 255, 0.95)';
+    debugCtx.beginPath();
+    debugCtx.arc(anchor2.x, anchor2.y, 6, 0, Math.PI * 2);
+    debugCtx.fill();
+    debugCtx.restore();
   }
 }
 
@@ -542,7 +566,6 @@ function placeWatch(pose) {
     0
   );
   state.modelRoot.scale.setScalar(pose.scale);
-  state.modelRoot.rotation.set(pose.rx, pose.ry, pose.rz);
 }
 
 function mapLandmark(lm) {
@@ -571,10 +594,11 @@ function mapLandmark(lm) {
   }
 }
 
-function toCameraSpacePoint(lm) {
-  let x = lm.x;
-  if (state.mirrorPreview) x = 1 - x;
-  return { x, y: lm.y, z: lm.z };
+function toSceneVec3(lm) {
+  const x = state.mirrorPreview ? -(lm.x - 0.5) : (lm.x - 0.5);
+  const y = -(lm.y - 0.5);
+  const z = -lm.z;
+  return new state.libs.THREE.Vector3(x, y, z);
 }
 
 function drawDebug(ctx, landmarks, highlightIndices = []) {
@@ -636,12 +660,6 @@ function median(values) {
   const mid = Math.floor(arr.length / 2);
   return arr.length % 2 ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2;
 }
-function lerpAngle(a, b, t) {
-  let delta = b - a;
-  while (delta > Math.PI) delta -= Math.PI * 2;
-  while (delta < -Math.PI) delta += Math.PI * 2;
-  return a + delta * t;
-}
 function subVec2(a, b) { return { x: a.x - b.x, y: a.y - b.y }; }
 function avgVec2(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
 function normVec2(v) {
@@ -649,3 +667,9 @@ function normVec2(v) {
   return { x: v.x / len, y: v.y / len };
 }
 function dist2(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function avgVec3(a, b) {
+  return new state.libs.THREE.Vector3((a.x+b.x)/2, (a.y+b.y)/2, (a.z+b.z)/2);
+}
+function subVec3(a, b) {
+  return new state.libs.THREE.Vector3(a.x-b.x, a.y-b.y, a.z-b.z);
+}
