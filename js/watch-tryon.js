@@ -3,6 +3,7 @@ const HAND_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_lan
 
 const videoEl = document.getElementById('camera-video');
 const threeCanvas = document.getElementById('three-canvas');
+const occlusionCanvas = document.getElementById('occlusion-canvas');
 const debugCanvas = document.getElementById('debug-canvas');
 const stageEl = document.getElementById('stage');
 
@@ -390,6 +391,10 @@ function resizeStage() {
   state.camera.bottom = -height / 2;
   state.camera.updateProjectionMatrix();
 
+  if (occlusionCanvas) {
+    occlusionCanvas.width = width;
+    occlusionCanvas.height = height;
+  }
   debugCanvas.width = width;
   debugCanvas.height = height;
 }
@@ -423,6 +428,8 @@ function renderScene() {
 function processResults(results) {
   const debugCtx = debugCanvas.getContext('2d');
   if (debugCtx) debugCtx.clearRect(0, 0, debugCanvas.width, debugCanvas.height);
+  const occlusionCtx = occlusionCanvas ? occlusionCanvas.getContext('2d') : null;
+  if (occlusionCtx) occlusionCtx.clearRect(0, 0, occlusionCanvas.width, occlusionCanvas.height);
 
   const landmarks = results?.landmarks?.[0];
   if (!landmarks) {
@@ -559,6 +566,7 @@ function processResults(results) {
   }
 
   placeWatch(state.pose);
+  drawHandOcclusion(landmarks, stableHandWidth, along2);
   setStatus(`${handedness} wrist detected`);
   setHint('Move slowly. Palm/back flips and side scale should be more correct now.');
 
@@ -582,6 +590,10 @@ function updateVisibilityOnMiss() {
     state.pose = null;
     state.widthHistory = [];
     state.scaleWidthHistory = [];
+    if (occlusionCanvas) {
+      const occlusionCtx = occlusionCanvas.getContext('2d');
+      if (occlusionCtx) occlusionCtx.clearRect(0, 0, occlusionCanvas.width, occlusionCanvas.height);
+    }
   }
 }
 
@@ -661,6 +673,126 @@ function drawDebug(ctx, landmarks, highlightIndices = []) {
   });
 
   ctx.restore();
+}
+
+
+function drawHandOcclusion(landmarks, stableHandWidth, along2) {
+  if (!occlusionCanvas || !videoEl.videoWidth || !videoEl.videoHeight) return;
+  const ctx = occlusionCanvas.getContext('2d');
+  if (!ctx) return;
+
+  const pts = landmarks.map(mapLandmark);
+  const wrist = pts[0];
+  const index = pts[5];
+  const pinky = pts[17];
+  const across2 = normVec2(subVec2(pinky, index));
+
+  // Extend the mask slightly into the forearm so the bracelet can disappear under the skin.
+  const forearmCenter = {
+    x: wrist.x - along2.x * stableHandWidth * 0.95,
+    y: wrist.y - along2.y * stableHandWidth * 0.95,
+  };
+  pts.push({
+    x: forearmCenter.x + across2.x * stableHandWidth * 0.52,
+    y: forearmCenter.y + across2.y * stableHandWidth * 0.52,
+  });
+  pts.push({
+    x: forearmCenter.x - across2.x * stableHandWidth * 0.52,
+    y: forearmCenter.y - across2.y * stableHandWidth * 0.52,
+  });
+
+  const hull = convexHull(pts);
+  if (hull.length < 3) return;
+
+  const expanded = expandPolygonFromCentroid(hull, 1.06);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(expanded[0].x, expanded[0].y);
+  for (let i = 1; i < expanded.length; i += 1) {
+    ctx.lineTo(expanded[i].x, expanded[i].y);
+  }
+  ctx.closePath();
+  ctx.clip();
+
+  drawCoveredVideoFrame(ctx);
+  ctx.restore();
+}
+
+function drawCoveredVideoFrame(ctx) {
+  const stageW = occlusionCanvas.width;
+  const stageH = occlusionCanvas.height;
+  const videoW = videoEl.videoWidth;
+  const videoH = videoEl.videoHeight;
+  if (!stageW || !stageH || !videoW || !videoH) return;
+
+  const stageAspect = stageW / stageH;
+  const videoAspect = videoW / videoH;
+
+  let sx = 0;
+  let sy = 0;
+  let sw = videoW;
+  let sh = videoH;
+
+  if (videoAspect > stageAspect) {
+    sw = videoH * stageAspect;
+    sx = (videoW - sw) / 2;
+  } else {
+    sh = videoW / stageAspect;
+    sy = (videoH - sh) / 2;
+  }
+
+  ctx.save();
+  if (state.mirrorPreview) {
+    ctx.translate(stageW, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, stageW, stageH);
+  ctx.restore();
+}
+
+function convexHull(points) {
+  const pts = [...points]
+    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+    .sort((a, b) => (a.x === b.x ? a.y - b.y : a.x - b.x));
+
+  if (pts.length <= 1) return pts;
+
+  const lower = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && crossHull(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+
+  const upper = [];
+  for (let i = pts.length - 1; i >= 0; i -= 1) {
+    const p = pts[i];
+    while (upper.length >= 2 && crossHull(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
+  }
+
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+function crossHull(o, a, b) {
+  return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+}
+
+function expandPolygonFromCentroid(points, factor) {
+  const centroid = points.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+  centroid.x /= points.length;
+  centroid.y /= points.length;
+
+  return points.map((p) => ({
+    x: centroid.x + (p.x - centroid.x) * factor,
+    y: centroid.y + (p.y - centroid.y) * factor,
+  }));
 }
 
 function setStatus(text) { statusPill.textContent = text; }
