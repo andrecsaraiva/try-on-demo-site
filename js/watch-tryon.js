@@ -1,10 +1,8 @@
-
 const WATCH_MODEL_PATH = './assets/models/relogio.glb';
 const HAND_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 
 const videoEl = document.getElementById('camera-video');
 const threeCanvas = document.getElementById('three-canvas');
-const occlusionCanvas = document.getElementById('occlusion-canvas');
 const debugCanvas = document.getElementById('debug-canvas');
 const stageEl = document.getElementById('stage');
 
@@ -35,20 +33,19 @@ const metricLastHand = document.getElementById('metric-last-hand');
 
 const CONFIG = {
   facingMode: 'environment',
-  modelScaleTrim: 1.0,
+  modelScaleTrim: 1.00,
   rollTrimDeg: 0,
-  wristOffsetTrim: 0.26,
-  centerAlongFactor: 0.26,
-  centerNormalOffsetFactor: 0.03,
-  autoScaleFactor: 0.82,
+  wristOffsetTrim: 0.24,
+  centerAlongFactor: 0.24,
+  autoScaleFactor: 0.88,
   keepVisibleMisses: 18,
   hideAfterMisses: 34,
-  posAlphaStable: 0.18,
-  posAlphaRecover: 0.48,
-  rotAlphaStable: 0.14,
-  rotAlphaRecover: 0.42,
-  scaleAlphaStable: 0.14,
-  scaleAlphaRecover: 0.36,
+  posAlphaStable: 0.16,
+  posAlphaRecover: 0.34,
+  rotAlphaStable: 0.12,
+  rotAlphaRecover: 0.26,
+  scaleAlphaStable: 0.10,
+  scaleAlphaRecover: 0.22,
 };
 
 const state = {
@@ -61,6 +58,7 @@ const state = {
   modelLoaded: false,
   modelRoot: null,
   modelSize: null,
+  modelRefSize: 0.05,
   renderer: null,
   scene: null,
   camera: null,
@@ -73,6 +71,7 @@ const state = {
   started: false,
   mirrorPreview: false,
   logLines: [],
+  scaleHistory: [],
 };
 
 watchScaleOutput.textContent = Number(watchScaleSlider.value).toFixed(2);
@@ -97,6 +96,7 @@ toggleDebugBtn.addEventListener('click', () => {
   state.debug = !state.debug;
   debugCanvas.hidden = !state.debug;
   toggleDebugBtn.textContent = state.debug ? 'Hide Landmarks' : 'Show Landmarks';
+  logLine(`Debug landmarks: ${state.debug ? 'ON' : 'OFF'}`);
 });
 
 copyLogBtn?.addEventListener('click', async () => {
@@ -204,9 +204,9 @@ async function initHandLandmarker() {
       },
       runningMode: 'VIDEO',
       numHands: 1,
-      minHandDetectionConfidence: 0.5,
-      minHandPresenceConfidence: 0.5,
-      minTrackingConfidence: 0.5,
+      minHandDetectionConfidence: 0.45,
+      minHandPresenceConfidence: 0.45,
+      minTrackingConfidence: 0.45,
     });
     state.delegate = 'GPU';
     metricDelegate.textContent = 'GPU';
@@ -220,9 +220,9 @@ async function initHandLandmarker() {
       },
       runningMode: 'VIDEO',
       numHands: 1,
-      minHandDetectionConfidence: 0.5,
-      minHandPresenceConfidence: 0.5,
-      minTrackingConfidence: 0.5,
+      minHandDetectionConfidence: 0.45,
+      minHandPresenceConfidence: 0.45,
+      minTrackingConfidence: 0.45,
     });
     state.delegate = 'CPU';
     metricDelegate.textContent = 'CPU';
@@ -244,14 +244,14 @@ function setupThree() {
   state.camera = new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 2000);
   state.camera.position.z = 1000;
 
-  const ambient = new THREE.AmbientLight(0xffffff, 1.22);
+  const ambient = new THREE.AmbientLight(0xffffff, 1.28);
   state.scene.add(ambient);
 
-  const key = new THREE.DirectionalLight(0xffffff, 1.1);
+  const key = new THREE.DirectionalLight(0xffffff, 1.12);
   key.position.set(0, 0, 400);
   state.scene.add(key);
 
-  const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.55);
   fill.position.set(-250, 120, 240);
   state.scene.add(fill);
 
@@ -280,10 +280,14 @@ async function loadWatchModel() {
 
         state.modelRoot = root;
         state.modelSize = size;
+
+        const dims = [size.x, size.y, size.z].sort((a, b) => a - b);
+        state.modelRefSize = dims[1] || size.x || 0.05;
+
         state.scene.add(root);
         state.modelLoaded = true;
 
-        logLine(`Watch model loaded. Size=${size.x.toFixed(4)} x ${size.y.toFixed(4)} x ${size.z.toFixed(4)}`);
+        logLine(`Watch model loaded. Size=${size.x.toFixed(4)} x ${size.y.toFixed(4)} x ${size.z.toFixed(4)} ref=${state.modelRefSize.toFixed(4)}`);
         resolve();
       },
       undefined,
@@ -315,9 +319,7 @@ async function startCamera() {
     },
     {
       audio: false,
-      video: {
-        facingMode: CONFIG.facingMode,
-      },
+      video: { facingMode: CONFIG.facingMode },
     },
     { audio: false, video: true },
   ];
@@ -387,14 +389,10 @@ function resizeStage() {
 
   debugCanvas.width = width;
   debugCanvas.height = height;
-  occlusionCanvas.width = width;
-  occlusionCanvas.height = height;
 }
 
 function loop() {
   state.animationHandle = requestAnimationFrame(loop);
-
-  drawOcclusion(null);
 
   if (!state.handLandmarker || !state.modelLoaded || !videoEl.srcObject || videoEl.readyState < 2) {
     renderScene();
@@ -434,7 +432,6 @@ function processResults(results) {
       setStatus('Searching for a wrist…');
       setHint('Show the full hand and wrist. Fingers slightly apart works best.');
     }
-    drawOcclusion(null);
     return;
   }
 
@@ -446,75 +443,61 @@ function processResults(results) {
   state.lastHandText = handedness;
   metricLastHand.textContent = handedness;
 
-  const lm3 = landmarks.map(toCameraSpacePoint);
-  const wrist3 = lm3[0];
-  const index3 = lm3[5];
-  const pinky3 = lm3[17];
-  const middle3 = lm3[9];
-  const knuckleMid3 = avgVec3(index3, pinky3);
+  const wrist = mapLandmark(landmarks[0]);
+  const indexMcp = mapLandmark(landmarks[5]);
+  const pinkyMcp = mapLandmark(landmarks[17]);
+  const middleMcp = mapLandmark(landmarks[9]);
 
-  let along3 = normVec3(subVec3(knuckleMid3, wrist3));
-  let across3 = normVec3(subVec3(index3, pinky3));
-  let normal3 = normVec3(crossVec3(across3, along3));
+  const wrist3 = toCameraSpacePoint(landmarks[0]);
+  const index3 = toCameraSpacePoint(landmarks[5]);
+  const pinky3 = toCameraSpacePoint(landmarks[17]);
+  const middle3 = toCameraSpacePoint(landmarks[9]);
 
-  if (normal3.z < 0) {
-    normal3 = mulVec3(normal3, -1);
-    across3 = mulVec3(across3, -1);
-  }
+  const knuckleMid = avgVec2(indexMcp, pinkyMcp);
+  const along2 = normVec2(subVec2(knuckleMid, wrist));
+  const handWidthPx = dist2(indexMcp, pinkyMcp);
 
-  const wrist2 = mapLandmark(landmarks[0]);
-  const knuckleMid2 = avgVec2(mapLandmark(landmarks[5]), mapLandmark(landmarks[17]));
-  const along2 = normVec2(subVec2(knuckleMid2, wrist2));
-  const normal2 = { x: -along2.y, y: along2.x };
+  // smoother automatic scale
+  state.scaleHistory.push(handWidthPx);
+  if (state.scaleHistory.length > 8) state.scaleHistory.shift();
+  const stableHandWidth = median(state.scaleHistory);
 
-  const handWidthPx = dist2(mapLandmark(landmarks[5]), mapLandmark(landmarks[17]));
-  const anchorBase = lerpVec2(wrist2, knuckleMid2, CONFIG.centerAlongFactor + (CONFIG.wristOffsetTrim - 0.26));
-  const anchor2 = addVec2(anchorBase, mulVec2(normal2, handWidthPx * CONFIG.centerNormalOffsetFactor));
+  const anchor = lerpVec2(wrist, knuckleMid, CONFIG.centerAlongFactor + (CONFIG.wristOffsetTrim - 0.24));
 
-  const desiredWidthPx = handWidthPx * CONFIG.autoScaleFactor * CONFIG.modelScaleTrim;
-  const modelWidth = state.modelSize ? state.modelSize.x : 0.07;
-  const targetScale = desiredWidthPx / modelWidth;
+  const baseAngle = Math.atan2(along2.y, along2.x);
+  const targetRotationZ = -baseAngle + degToRad(CONFIG.rollTrimDeg);
 
-  const THREE = state.libs.THREE;
-  const basis = new THREE.Matrix4().makeBasis(
-    new THREE.Vector3(across3.x, across3.y, across3.z),
-    new THREE.Vector3(along3.x, along3.y, along3.z),
-    new THREE.Vector3(normal3.x, normal3.y, normal3.z)
-  );
-  const targetQuat = new THREE.Quaternion().setFromRotationMatrix(basis);
-  const rollTrim = new THREE.Quaternion().setFromAxisAngle(
-    new THREE.Vector3(0, 0, 1),
-    degToRad(CONFIG.rollTrimDeg)
-  );
-  targetQuat.multiply(rollTrim);
+  const zAcross = (index3.z - pinky3.z);
+  const zAlong = (middle3.z - wrist3.z);
+  const targetRotationX = clamp(-0.22 + zAlong * 3.2, -0.65, 0.45);
+  const targetRotationY = clamp(zAcross * 3.8, -0.55, 0.55);
 
-  const targetRotX = clamp((wrist3.z - knuckleMid3.z) * 1.4, -0.45, 0.45);
-  const pitchTrim = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), targetRotX);
-  targetQuat.multiply(pitchTrim);
+  const desiredWidthPx = stableHandWidth * CONFIG.autoScaleFactor * CONFIG.modelScaleTrim;
+  const targetScale = desiredWidthPx / Math.max(state.modelRefSize, 0.001);
+
+  const target = {
+    x: anchor.x,
+    y: anchor.y,
+    scale: targetScale,
+    rx: targetRotationX,
+    ry: targetRotationY,
+    rz: targetRotationZ,
+  };
 
   if (!state.pose) {
-    state.pose = {
-      x: anchor2.x,
-      y: anchor2.y,
-      scale: targetScale,
-      quat: targetQuat.clone(),
-    };
-    logLine(`First hand detected. handWidth=${handWidthPx.toFixed(2)} scale=${targetScale.toFixed(2)}`);
+    state.pose = { ...target };
+    logLine(`First hand detected. handWidth=${handWidthPx.toFixed(2)} stable=${stableHandWidth.toFixed(2)} scale=${targetScale.toFixed(2)}`);
   } else {
     const recovering = state.misses > 0;
-    const posAlpha = recovering ? CONFIG.posAlphaRecover : CONFIG.posAlphaStable;
-    const rotAlpha = recovering ? CONFIG.rotAlphaRecover : CONFIG.rotAlphaStable;
-    const scaleAlpha = recovering ? CONFIG.scaleAlphaRecover : CONFIG.scaleAlphaStable;
-
-    state.pose.x = lerp(state.pose.x, anchor2.x, posAlpha);
-    state.pose.y = lerp(state.pose.y, anchor2.y, posAlpha);
-    state.pose.scale = lerp(state.pose.scale, targetScale, scaleAlpha);
-    state.pose.quat.slerp(targetQuat, rotAlpha);
+    state.pose.x = lerp(state.pose.x, target.x, recovering ? CONFIG.posAlphaRecover : CONFIG.posAlphaStable);
+    state.pose.y = lerp(state.pose.y, target.y, recovering ? CONFIG.posAlphaRecover : CONFIG.posAlphaStable);
+    state.pose.scale = lerp(state.pose.scale, target.scale, recovering ? CONFIG.scaleAlphaRecover : CONFIG.scaleAlphaStable);
+    state.pose.rx = lerp(state.pose.rx, target.rx, recovering ? CONFIG.rotAlphaRecover : CONFIG.rotAlphaStable);
+    state.pose.ry = lerp(state.pose.ry, target.ry, recovering ? CONFIG.rotAlphaRecover : CONFIG.rotAlphaStable);
+    state.pose.rz = lerpAngle(state.pose.rz, target.rz, recovering ? CONFIG.rotAlphaRecover : CONFIG.rotAlphaStable);
   }
 
   placeWatch(state.pose);
-  drawOcclusion(landmarks);
-
   setStatus(`${handedness} wrist detected`);
   setHint('Move slowly. The watch will stay visible longer when tracking is briefly lost.');
 
@@ -525,112 +508,64 @@ function processResults(results) {
 
 function updateVisibilityOnMiss() {
   if (!state.modelRoot) return;
-  if (state.misses <= CONFIG.keepVisibleMisses) {
-    if (state.modelRoot.visible && state.modelRoot.userData.fade < 1) {
-      state.modelRoot.userData.fade = Math.min(1, (state.modelRoot.userData.fade || 1) + 0.08);
-      applyModelOpacity(state.modelRoot.userData.fade);
-    }
-    return;
+
+  if (state.misses > CONFIG.keepVisibleMisses && state.misses < CONFIG.hideAfterMisses) {
+    state.modelRoot.visible = true;
+  } else if (state.misses >= CONFIG.hideAfterMisses) {
+    state.modelRoot.visible = false;
+    state.pose = null;
+    state.scaleHistory = [];
   }
-  if (state.misses <= CONFIG.hideAfterMisses) {
-    state.modelRoot.userData.fade = Math.max(0, (state.modelRoot.userData.fade ?? 1) - 0.08);
-    applyModelOpacity(state.modelRoot.userData.fade);
-    return;
-  }
-  state.modelRoot.visible = false;
-  applyModelOpacity(1);
 }
 
 function placeWatch(pose) {
   if (!state.modelRoot) return;
-  const rect = stageEl.getBoundingClientRect();
 
+  const rect = stageEl.getBoundingClientRect();
   state.modelRoot.visible = true;
-  state.modelRoot.userData.fade = 1;
   state.modelRoot.position.set(
     pose.x - rect.width / 2,
     -(pose.y - rect.height / 2),
     0
   );
   state.modelRoot.scale.setScalar(pose.scale);
-  state.modelRoot.quaternion.copy(pose.quat);
-  applyModelOpacity(1);
+  state.modelRoot.rotation.set(pose.rx, pose.ry, pose.rz);
 }
 
-function applyModelOpacity(alpha) {
-  if (!state.modelRoot) return;
-  state.modelRoot.traverse((obj) => {
-    if (!obj.material) return;
-    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-    mats.forEach((mat) => {
-      mat.transparent = alpha < 0.999;
-      mat.opacity = alpha;
-      mat.depthWrite = alpha >= 0.999;
-      mat.needsUpdate = true;
-    });
-  });
-}
+function mapLandmark(lm) {
+  const rect = stageEl.getBoundingClientRect();
+  const videoW = videoEl.videoWidth || rect.width;
+  const videoH = videoEl.videoHeight || rect.height;
 
-function drawOcclusion(landmarks) {
-  const ctx = occlusionCanvas.getContext('2d');
-  ctx.clearRect(0, 0, occlusionCanvas.width, occlusionCanvas.height);
-  if (!landmarks || videoEl.readyState < 2) return;
+  const stageW = rect.width;
+  const stageH = rect.height;
 
-  const pts = [0,1,2,3,4,8,12,16,20,19,18,17].map((idx) => mapLandmark(landmarks[idx]));
-  const centroid = pts.reduce((acc, p) => ({ x: acc.x + p.x / pts.length, y: acc.y + p.y / pts.length }), { x: 0, y: 0 });
-  const expanded = pts.map((p) => {
-    const dx = p.x - centroid.x;
-    const dy = p.y - centroid.y;
-    return { x: centroid.x + dx * 1.10, y: centroid.y + dy * 1.10 };
-  });
+  let nx = lm.x;
+  if (state.mirrorPreview) nx = 1 - nx;
 
-  ctx.save();
-  ctx.beginPath();
-  expanded.forEach((p, i) => {
-    if (i === 0) ctx.moveTo(p.x, p.y);
-    else ctx.lineTo(p.x, p.y);
-  });
-  ctx.closePath();
-  ctx.clip();
-  drawVideoCover(ctx);
-  ctx.restore();
-}
-
-function drawVideoCover(ctx) {
-  const stageW = occlusionCanvas.width;
-  const stageH = occlusionCanvas.height;
-  const videoW = videoEl.videoWidth || stageW;
-  const videoH = videoEl.videoHeight || stageH;
-
-  const stageAspect = stageW / stageH;
   const videoAspect = videoW / videoH;
+  const stageAspect = stageW / stageH;
 
-  let drawW, drawH, dx, dy;
   if (videoAspect > stageAspect) {
-    drawH = stageH;
-    drawW = drawH * videoAspect;
-    dx = (stageW - drawW) / 2;
-    dy = 0;
+    const scale = stageH / videoH;
+    const displayW = videoW * scale;
+    const offsetX = (stageW - displayW) / 2;
+    return { x: nx * displayW + offsetX, y: lm.y * stageH };
   } else {
-    drawW = stageW;
-    drawH = drawW / videoAspect;
-    dx = 0;
-    dy = (stageH - drawH) / 2;
+    const scale = stageW / videoW;
+    const displayH = videoH * scale;
+    const offsetY = (stageH - displayH) / 2;
+    return { x: nx * stageW, y: lm.y * displayH + offsetY };
   }
+}
 
-  if (state.mirrorPreview) {
-    ctx.save();
-    ctx.translate(stageW, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(videoEl, stageW - (dx + drawW), dy, drawW, drawH);
-    ctx.restore();
-  } else {
-    ctx.drawImage(videoEl, dx, dy, drawW, drawH);
-  }
+function toCameraSpacePoint(lm) {
+  let x = lm.x;
+  if (state.mirrorPreview) x = 1 - x;
+  return { x, y: lm.y, z: lm.z };
 }
 
 function drawDebug(ctx, landmarks, highlightIndices = []) {
-  ctx.clearRect(0, 0, debugCanvas.width, debugCanvas.height);
   ctx.save();
   ctx.lineWidth = 2;
   ctx.strokeStyle = 'rgba(207, 220, 122, 0.95)';
@@ -655,78 +590,59 @@ function drawDebug(ctx, landmarks, highlightIndices = []) {
   landmarks.forEach((lm, i) => {
     const p = mapLandmark(lm);
     ctx.beginPath();
-    ctx.arc(p.x, p.y, highlightIndices.includes(i) ? 6.5 : 4, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, highlightIndices.includes(i) ? 7 : 4, 0, Math.PI * 2);
     ctx.fillStyle = highlightIndices.includes(i) ? 'rgba(255, 221, 0, 0.98)' : 'rgba(255,255,255,0.95)';
     ctx.fill();
   });
+
   ctx.restore();
-}
-
-function toCameraSpacePoint(lm) {
-  const x = (state.mirrorPreview ? 1 - lm.x : lm.x) - 0.5;
-  const y = 0.5 - lm.y;
-  const z = -lm.z;
-  return { x, y, z };
-}
-
-function mapLandmark(lm) {
-  const rect = stageEl.getBoundingClientRect();
-  const videoW = videoEl.videoWidth || rect.width;
-  const videoH = videoEl.videoHeight || rect.height;
-  const stageW = rect.width;
-  const stageH = rect.height;
-  let nx = lm.x;
-  if (state.mirrorPreview) nx = 1 - nx;
-
-  const videoAspect = videoW / videoH;
-  const stageAspect = stageW / stageH;
-
-  if (videoAspect > stageAspect) {
-    const scale = stageH / videoH;
-    const displayW = videoW * scale;
-    const offsetX = (stageW - displayW) / 2;
-    return { x: nx * displayW + offsetX, y: lm.y * stageH };
-  } else {
-    const scale = stageW / videoW;
-    const displayH = videoH * scale;
-    const offsetY = (stageH - displayH) / 2;
-    return { x: nx * stageW, y: lm.y * displayH + offsetY };
-  }
 }
 
 function setStatus(text) {
   statusPill.textContent = text;
 }
+
 function setHint(text) {
   hintText.textContent = text;
 }
+
 function logLine(text) {
   const timestamp = new Date().toLocaleTimeString();
   const line = `[${timestamp}] ${text}`;
   console.log(line);
   state.logLines.push(line);
-  if (state.logLines.length > 160) state.logLines = state.logLines.slice(-160);
+  if (state.logLines.length > 120) state.logLines = state.logLines.slice(-120);
   renderLog();
 }
+
 function renderLog() {
   debugLog.textContent = state.logLines.join('\n');
   debugLog.scrollTop = debugLog.scrollHeight;
 }
 
-function subVec2(a,b){ return { x:a.x-b.x, y:a.y-b.y }; }
-function addVec2(a,b){ return { x:a.x+b.x, y:a.y+b.y }; }
-function mulVec2(v,s){ return { x:v.x*s, y:v.y*s }; }
-function avgVec2(a,b){ return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 }; }
-function lerpVec2(a,b,t){ return { x: lerp(a.x,b.x,t), y: lerp(a.y,b.y,t) }; }
-function normVec2(v){ const l=Math.hypot(v.x,v.y)||1; return { x:v.x/l, y:v.y/l }; }
-function dist2(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function degToRad(v) { return (v * Math.PI) / 180; }
+function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+function median(values) {
+  const arr = [...values].sort((a,b)=>a-b);
+  if (!arr.length) return 0;
+  const mid = Math.floor(arr.length / 2);
+  return arr.length % 2 ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2;
+}
+function lerpAngle(a, b, t) {
+  let delta = b - a;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return a + delta * t;
+}
 
-function subVec3(a,b){ return { x:a.x-b.x, y:a.y-b.y, z:a.z-b.z }; }
-function mulVec3(v,s){ return { x:v.x*s, y:v.y*s, z:v.z*s }; }
-function avgVec3(a,b){ return { x:(a.x+b.x)/2, y:(a.y+b.y)/2, z:(a.z+b.z)/2 }; }
-function normVec3(v){ const l=Math.hypot(v.x,v.y,v.z)||1; return { x:v.x/l, y:v.y/l, z:v.z/l }; }
-function crossVec3(a,b){ return { x:a.y*b.z - a.z*b.y, y:a.z*b.x - a.x*b.z, z:a.x*b.y - a.y*b.x }; }
-
-function degToRad(v){ return v * Math.PI / 180; }
-function lerp(a,b,t){ return a + (b-a) * t; }
-function clamp(v,min,max){ return Math.min(max, Math.max(min, v)); }
+function subVec2(a, b) { return { x: a.x - b.x, y: a.y - b.y }; }
+function avgVec2(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
+function normVec2(v) {
+  const len = Math.hypot(v.x, v.y) || 1;
+  return { x: v.x / len, y: v.y / len };
+}
+function lerpVec2(a, b, t) {
+  return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) };
+}
+function dist2(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
