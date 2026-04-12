@@ -1,21 +1,19 @@
-# Watch Try-On Stable V9
+# Watch Try-On Corrective V10
 
-This version intentionally backs off from the unstable premium-v8 experiment.
+Focused only on the requested fixes:
+
+- return the watch anchor to the wrist
+- make the watch follow rotation better
+- keep scale variation mainly tied to camera distance
 
 ## What changed
-- Rebuilt from the last working wrist-tracking flow
-- Keeps premium UI
-- Keeps logs and developer tools hidden in a collapsed panel
-- Improves stability with:
-  - rolling median auto-scale
-  - gentler smoothing
-  - longer persistence before hiding the watch
-- Improves fit with:
-  - more stable wrist anchor
-  - model reference size based on the median GLB dimension
-  - milder 3D tilt from landmark depth
-- Removes the experimental occlusion layer that caused clipping / floating polygons
+- anchor moved back to the wrist using the old working wrist-offset logic
+- stronger 3D wrist rotation from depth differences
+- softer but faster position/rotation smoothing
+- auto scale now uses a short median history and clamps, so it breathes less
+- no occlusion changes in this version
 
-## Important
-This version is the stable path for items 1, 2, 4 and 5.
-Real hand occlusion still needs a separate segmentation/depth approach.
+## Files changed
+- `watch-tryon.html` (cache bust only)
+- `js/watch-tryon.js`
+- includes latest `assets/models/relogio.glb` if present

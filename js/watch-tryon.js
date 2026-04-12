@@ -35,17 +35,12 @@ const CONFIG = {
   facingMode: 'environment',
   modelScaleTrim: 1.00,
   rollTrimDeg: 0,
-  wristOffsetTrim: 0.24,
-  centerAlongFactor: 0.24,
-  autoScaleFactor: 0.88,
-  keepVisibleMisses: 18,
-  hideAfterMisses: 34,
-  posAlphaStable: 0.16,
-  posAlphaRecover: 0.34,
-  rotAlphaStable: 0.12,
-  rotAlphaRecover: 0.26,
-  scaleAlphaStable: 0.10,
-  scaleAlphaRecover: 0.22,
+  wristOffsetTrim: 0.24,   // around the last working value
+  autoScaleFactor: 1.02,   // closer to true wrist width
+  keepVisibleMisses: 12,
+  hideAfterMisses: 24,
+  minScalePx: 70,
+  maxScalePx: 220,
 };
 
 const state = {
@@ -71,7 +66,7 @@ const state = {
   started: false,
   mirrorPreview: false,
   logLines: [],
-  scaleHistory: [],
+  widthHistory: [],
 };
 
 watchScaleOutput.textContent = Number(watchScaleSlider.value).toFixed(2);
@@ -244,11 +239,11 @@ function setupThree() {
   state.camera = new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 2000);
   state.camera.position.z = 1000;
 
-  const ambient = new THREE.AmbientLight(0xffffff, 1.28);
+  const ambient = new THREE.AmbientLight(0xffffff, 1.32);
   state.scene.add(ambient);
 
-  const key = new THREE.DirectionalLight(0xffffff, 1.12);
-  key.position.set(0, 0, 400);
+  const key = new THREE.DirectionalLight(0xffffff, 1.18);
+  key.position.set(0, 0, 420);
   state.scene.add(key);
 
   const fill = new THREE.DirectionalLight(0xffffff, 0.55);
@@ -297,12 +292,8 @@ async function loadWatchModel() {
 }
 
 async function startCamera() {
-  if (!window.isSecureContext) {
-    throw new Error('This page needs HTTPS to open the camera.');
-  }
-  if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error('Camera access is not available in this browser.');
-  }
+  if (!window.isSecureContext) throw new Error('This page needs HTTPS to open the camera.');
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera access is not available in this browser.');
 
   stopCamera();
   setStatus('Starting camera…');
@@ -336,7 +327,6 @@ async function startCamera() {
       logLine(`getUserMedia failed: ${error?.name || 'Error'} - ${error?.message || error}`);
     }
   }
-
   if (!stream) throw lastError || new Error('Could not start camera.');
 
   state.stream = stream;
@@ -400,7 +390,6 @@ function loop() {
   }
 
   const now = performance.now();
-
   if (videoEl.currentTime !== state.lastVideoTime && now - state.lastDetectionTime > 20) {
     const results = state.handLandmarker.detectForVideo(videoEl, now);
     processResults(results);
@@ -443,84 +432,108 @@ function processResults(results) {
   state.lastHandText = handedness;
   metricLastHand.textContent = handedness;
 
-  const wrist = mapLandmark(landmarks[0]);
-  const indexMcp = mapLandmark(landmarks[5]);
-  const pinkyMcp = mapLandmark(landmarks[17]);
-  const middleMcp = mapLandmark(landmarks[9]);
+  const wrist2 = mapLandmark(landmarks[0]);
+  const index2 = mapLandmark(landmarks[5]);
+  const pinky2 = mapLandmark(landmarks[17]);
+  const middle2 = mapLandmark(landmarks[9]);
 
   const wrist3 = toCameraSpacePoint(landmarks[0]);
   const index3 = toCameraSpacePoint(landmarks[5]);
   const pinky3 = toCameraSpacePoint(landmarks[17]);
   const middle3 = toCameraSpacePoint(landmarks[9]);
 
-  const knuckleMid = avgVec2(indexMcp, pinkyMcp);
-  const along2 = normVec2(subVec2(knuckleMid, wrist));
-  const handWidthPx = dist2(indexMcp, pinkyMcp);
+  const knuckleMid2 = avgVec2(index2, pinky2);
+  const along2 = normVec2(subVec2(knuckleMid2, wrist2));
+  const across2 = normVec2(subVec2(pinky2, index2));
 
-  // smoother automatic scale
-  state.scaleHistory.push(handWidthPx);
-  if (state.scaleHistory.length > 8) state.scaleHistory.shift();
-  const stableHandWidth = median(state.scaleHistory);
+  // Anchor BACK TO THE WRIST, not the center of the hand
+  const handWidthPxRaw = dist2(index2, pinky2);
+  state.widthHistory.push(handWidthPxRaw);
+  if (state.widthHistory.length > 6) state.widthHistory.shift();
+  const stableHandWidth = median(state.widthHistory);
 
-  const anchor = lerpVec2(wrist, knuckleMid, CONFIG.centerAlongFactor + (CONFIG.wristOffsetTrim - 0.24));
+  const wristOffsetPx = stableHandWidth * CONFIG.wristOffsetTrim;
+  const anchor2 = {
+    x: wrist2.x - along2.x * wristOffsetPx,
+    y: wrist2.y - along2.y * wristOffsetPx,
+  };
 
-  const baseAngle = Math.atan2(along2.y, along2.x);
-  const targetRotationZ = -baseAngle + degToRad(CONFIG.rollTrimDeg);
+  // Roll from wrist -> knuckle direction
+  const roll = -Math.atan2(along2.y, along2.x) + degToRad(CONFIG.rollTrimDeg);
 
+  // Stronger 3D rotation from depth variation
   const zAcross = (index3.z - pinky3.z);
   const zAlong = (middle3.z - wrist3.z);
-  const targetRotationX = clamp(-0.22 + zAlong * 3.2, -0.65, 0.45);
-  const targetRotationY = clamp(zAcross * 3.8, -0.55, 0.55);
 
-  const desiredWidthPx = stableHandWidth * CONFIG.autoScaleFactor * CONFIG.modelScaleTrim;
+  let yaw = clamp(zAcross * 7.0, -0.95, 0.95);
+  let pitch = clamp(-0.28 + zAlong * 5.0, -0.95, 0.65);
+
+  // Correct left/right handedness so crown side feels more coherent
+  if (handedness.toLowerCase().includes('left')) {
+    yaw *= -1;
+  }
+
+  // Scale should mostly vary with distance to camera
+  const desiredWidthPx = clamp(stableHandWidth * CONFIG.autoScaleFactor * CONFIG.modelScaleTrim, CONFIG.minScalePx, CONFIG.maxScalePx);
   const targetScale = desiredWidthPx / Math.max(state.modelRefSize, 0.001);
 
   const target = {
-    x: anchor.x,
-    y: anchor.y,
+    x: anchor2.x,
+    y: anchor2.y,
     scale: targetScale,
-    rx: targetRotationX,
-    ry: targetRotationY,
-    rz: targetRotationZ,
+    rx: pitch,
+    ry: yaw,
+    rz: roll,
   };
 
   if (!state.pose) {
     state.pose = { ...target };
-    logLine(`First hand detected. handWidth=${handWidthPx.toFixed(2)} stable=${stableHandWidth.toFixed(2)} scale=${targetScale.toFixed(2)}`);
+    logLine(`First hand detected. width=${handWidthPxRaw.toFixed(2)} stable=${stableHandWidth.toFixed(2)} scale=${targetScale.toFixed(2)}`);
   } else {
-    const recovering = state.misses > 0;
-    state.pose.x = lerp(state.pose.x, target.x, recovering ? CONFIG.posAlphaRecover : CONFIG.posAlphaStable);
-    state.pose.y = lerp(state.pose.y, target.y, recovering ? CONFIG.posAlphaRecover : CONFIG.posAlphaStable);
-    state.pose.scale = lerp(state.pose.scale, target.scale, recovering ? CONFIG.scaleAlphaRecover : CONFIG.scaleAlphaStable);
-    state.pose.rx = lerp(state.pose.rx, target.rx, recovering ? CONFIG.rotAlphaRecover : CONFIG.rotAlphaStable);
-    state.pose.ry = lerp(state.pose.ry, target.ry, recovering ? CONFIG.rotAlphaRecover : CONFIG.rotAlphaStable);
-    state.pose.rz = lerpAngle(state.pose.rz, target.rz, recovering ? CONFIG.rotAlphaRecover : CONFIG.rotAlphaStable);
+    const movement = Math.hypot(target.x - state.pose.x, target.y - state.pose.y);
+    const fast = movement > 22;
+
+    const posAlpha = fast ? 0.34 : 0.22;
+    const rotAlpha = fast ? 0.30 : 0.18;
+    const scaleAlpha = 0.10;
+
+    state.pose.x = lerp(state.pose.x, target.x, posAlpha);
+    state.pose.y = lerp(state.pose.y, target.y, posAlpha);
+    state.pose.scale = lerp(state.pose.scale, target.scale, scaleAlpha);
+    state.pose.rx = lerp(state.pose.rx, target.rx, rotAlpha);
+    state.pose.ry = lerp(state.pose.ry, target.ry, rotAlpha);
+    state.pose.rz = lerpAngle(state.pose.rz, target.rz, rotAlpha);
   }
 
   placeWatch(state.pose);
   setStatus(`${handedness} wrist detected`);
-  setHint('Move slowly. The watch will stay visible longer when tracking is briefly lost.');
+  setHint('Move slowly. The watch should stay anchored closer to the wrist now.');
 
   if (state.debug && debugCtx) {
     drawDebug(debugCtx, landmarks, [0, 5, 9, 17]);
+      // visualize wrist anchor
+      debugCtx.save();
+      debugCtx.fillStyle = 'rgba(0, 220, 255, 0.95)';
+      debugCtx.beginPath();
+      debugCtx.arc(anchor2.x, anchor2.y, 6, 0, Math.PI * 2);
+      debugCtx.fill();
+      debugCtx.restore();
   }
 }
 
 function updateVisibilityOnMiss() {
   if (!state.modelRoot) return;
-
   if (state.misses > CONFIG.keepVisibleMisses && state.misses < CONFIG.hideAfterMisses) {
     state.modelRoot.visible = true;
   } else if (state.misses >= CONFIG.hideAfterMisses) {
     state.modelRoot.visible = false;
     state.pose = null;
-    state.scaleHistory = [];
+    state.widthHistory = [];
   }
 }
 
 function placeWatch(pose) {
   if (!state.modelRoot) return;
-
   const rect = stageEl.getBoundingClientRect();
   state.modelRoot.visible = true;
   state.modelRoot.position.set(
@@ -536,7 +549,6 @@ function mapLandmark(lm) {
   const rect = stageEl.getBoundingClientRect();
   const videoW = videoEl.videoWidth || rect.width;
   const videoH = videoEl.videoHeight || rect.height;
-
   const stageW = rect.width;
   const stageH = rect.height;
 
@@ -598,13 +610,8 @@ function drawDebug(ctx, landmarks, highlightIndices = []) {
   ctx.restore();
 }
 
-function setStatus(text) {
-  statusPill.textContent = text;
-}
-
-function setHint(text) {
-  hintText.textContent = text;
-}
+function setStatus(text) { statusPill.textContent = text; }
+function setHint(text) { hintText.textContent = text; }
 
 function logLine(text) {
   const timestamp = new Date().toLocaleTimeString();
@@ -635,14 +642,10 @@ function lerpAngle(a, b, t) {
   while (delta < -Math.PI) delta += Math.PI * 2;
   return a + delta * t;
 }
-
 function subVec2(a, b) { return { x: a.x - b.x, y: a.y - b.y }; }
 function avgVec2(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
 function normVec2(v) {
   const len = Math.hypot(v.x, v.y) || 1;
   return { x: v.x / len, y: v.y / len };
-}
-function lerpVec2(a, b, t) {
-  return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) };
 }
 function dist2(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
