@@ -41,12 +41,12 @@ const CONFIG = {
   hideAfterMisses: 24,
   minScalePx: 70,
   maxScalePx: 220,
-  // rotation only
   rotSlerpStable: 0.20,
   rotSlerpFast: 0.34,
   posAlphaStable: 0.22,
   posAlphaFast: 0.34,
   scaleAlpha: 0.10,
+  sideCompMin: 0.62, // avoid the watch shrinking too much at 90°
 };
 
 const state = {
@@ -181,12 +181,7 @@ async function boot() {
   state.targetQuat = new THREE.Quaternion();
   state.tmpQuat = new THREE.Quaternion();
   state.tmpMat4 = new THREE.Matrix4();
-
-  // Correction quaternion:
-  // local X = bracelet length axis
-  // local Z = watch face normal
-  // rotate around local X by optional slider trim later via target basis
-  state.correctionQuat = new THREE.Quaternion(); // identity for now
+  state.correctionQuat = new THREE.Quaternion();
 
   setupThree();
   await loadWatchModel();
@@ -449,7 +444,7 @@ function processResults(results) {
   state.lastHandText = handedness;
   metricLastHand.textContent = handedness;
 
-  // 2D points for anchor/scale
+  // 2D anchor/scale
   const wrist2 = mapLandmark(landmarks[0]);
   const index2 = mapLandmark(landmarks[5]);
   const pinky2 = mapLandmark(landmarks[17]);
@@ -467,30 +462,36 @@ function processResults(results) {
     y: wrist2.y - along2.y * wristOffsetPx,
   };
 
-  // 3D points for rotation
+  // 3D basis
   const wrist3 = toSceneVec3(landmarks[0]);
   const index3 = toSceneVec3(landmarks[5]);
   const pinky3 = toSceneVec3(landmarks[17]);
   const knuckleMid3 = avgVec3(index3, pinky3);
 
-  // basis vectors
-  const along3 = subVec3(knuckleMid3, wrist3).normalize();   // wrist -> fingers
-  let across3 = subVec3(pinky3, index3).normalize();         // index -> pinky
-  let normal3 = new state.libs.THREE.Vector3().crossVectors(across3, along3).normalize(); // outward hand normal-ish
+  const along3 = subVec3(knuckleMid3, wrist3).normalize();  // bracelet axis
+  let across3 = subVec3(pinky3, index3).normalize();
+  let normal3 = new state.libs.THREE.Vector3().crossVectors(across3, along3).normalize();
 
-  // Make the face point outward more consistently.
-  // If normal points away from camera, flip it so the watch rotates with hand flip.
-  // Scene camera looks towards -Z from +Z, so "towards camera" is +Z-ish.
+  // Palm/back detection using 2D winding and handedness.
+  // Rear camera, not mirrored.
+  const cross2 = cross2D(subVec2(index2, wrist2), subVec2(pinky2, wrist2));
+  const isLeft = handedness.toLowerCase().includes('left');
+
+  // Heuristic:
+  // left hand: back tends to produce positive winding, palm negative
+  // right hand: opposite
+  const palmFacing = isLeft ? (cross2 < 0) : (cross2 > 0);
+
+  // Side-on compensation so the watch does not shrink at ~90°
+  const sideFactor = 1 / clamp(Math.abs(normal3.z), CONFIG.sideCompMin, 1.0);
+
+  // Build orthonormal basis
+  const xAxis = along3.clone();
+  // use absolute face normal for smooth side rotation, then add palm flip below
   if (normal3.z < 0) {
     normal3.multiplyScalar(-1);
     across3.multiplyScalar(-1);
   }
-
-  // Build orthonormal basis:
-  // local X = bracelet direction (towards fingers)
-  // local Z = watch face normal
-  // local Y = completes the basis
-  const xAxis = along3.clone();
   const zAxis = normal3.clone();
   const yAxis = new state.libs.THREE.Vector3().crossVectors(zAxis, xAxis).normalize();
   zAxis.copy(new state.libs.THREE.Vector3().crossVectors(xAxis, yAxis).normalize());
@@ -498,12 +499,23 @@ function processResults(results) {
   state.tmpMat4.makeBasis(xAxis, yAxis, zAxis);
   state.targetQuat.setFromRotationMatrix(state.tmpMat4);
 
-  // Fine roll trim around bracelet axis (local X)
+  // Apply user trim around local X
   state.tmpQuat.setFromAxisAngle(new state.libs.THREE.Vector3(1, 0, 0), degToRad(CONFIG.rollTrimDeg));
   state.targetQuat.multiply(state.tmpQuat);
-  state.targetQuat.multiply(state.correctionQuat);
 
-  const desiredWidthPx = clamp(stableHandWidth * CONFIG.autoScaleFactor * CONFIG.modelScaleTrim, CONFIG.minScalePx, CONFIG.maxScalePx);
+  // IMPORTANT:
+  // If the palm is facing the camera, flip 180° around bracelet axis
+  // so the underside of the watch is shown instead of snapping back to the face-up state.
+  if (palmFacing) {
+    state.tmpQuat.setFromAxisAngle(new state.libs.THREE.Vector3(1, 0, 0), Math.PI);
+    state.targetQuat.multiply(state.tmpQuat);
+  }
+
+  const desiredWidthPx = clamp(
+    stableHandWidth * sideFactor * CONFIG.autoScaleFactor * CONFIG.modelScaleTrim,
+    CONFIG.minScalePx,
+    CONFIG.maxScalePx
+  );
   const targetScale = desiredWidthPx / Math.max(state.modelRefSize, 0.001);
 
   const target = {
@@ -515,7 +527,10 @@ function processResults(results) {
   if (!state.pose) {
     state.pose = { ...target };
     state.modelRoot.quaternion.copy(state.targetQuat);
-    logLine(`First hand detected. width=${handWidthPxRaw.toFixed(2)} stable=${stableHandWidth.toFixed(2)} scale=${targetScale.toFixed(2)}`);
+    logLine(
+      `First hand detected. width=${handWidthPxRaw.toFixed(2)} stable=${stableHandWidth.toFixed(2)} ` +
+      `side=${sideFactor.toFixed(2)} palm=${palmFacing} scale=${targetScale.toFixed(2)}`
+    );
   } else {
     const movement = Math.hypot(target.x - state.pose.x, target.y - state.pose.y);
     const fast = movement > 22;
@@ -532,7 +547,7 @@ function processResults(results) {
 
   placeWatch(state.pose);
   setStatus(`${handedness} wrist detected`);
-  setHint('Move slowly. Rotation should now follow the arm twist more closely.');
+  setHint('Move slowly. Palm/back flips and side scale should be more correct now.');
 
   if (state.debug && debugCtx) {
     drawDebug(debugCtx, landmarks, [0, 5, 17]);
@@ -672,4 +687,7 @@ function avgVec3(a, b) {
 }
 function subVec3(a, b) {
   return new state.libs.THREE.Vector3(a.x-b.x, a.y-b.y, a.z-b.z);
+}
+function cross2D(a, b) {
+  return a.x * b.y - a.y * b.x;
 }
