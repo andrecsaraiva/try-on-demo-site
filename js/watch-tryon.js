@@ -40,13 +40,13 @@ const CONFIG = {
   keepVisibleMisses: 12,
   hideAfterMisses: 24,
   minScalePx: 70,
-  maxScalePx: 280,
+  maxScalePx: 300,
   rotSlerpStable: 0.20,
   rotSlerpFast: 0.34,
   posAlphaStable: 0.22,
   posAlphaFast: 0.34,
   scaleAlpha: 0.10,
-  sideCompMin: 0.48, // stronger compensation so the watch shrinks less at 90°
+  sideCompMin: 0.40, // stronger compensation so the watch shrinks less at 90°
 };
 
 const state = {
@@ -77,6 +77,7 @@ const state = {
   mirrorPreview: false,
   logLines: [],
   widthHistory: [],
+  scaleWidthHistory: [],
 };
 
 watchScaleOutput.textContent = Number(watchScaleSlider.value).toFixed(2);
@@ -480,10 +481,18 @@ function processResults(results) {
   // Heuristic:
   // left hand: back tends to produce positive winding, palm negative
   // right hand: opposite
-  const palmFacing = isLeft ? (cross2 < 0) : (cross2 > 0);
+  const palmFacing = isLeft ? (cross2 > 0) : (cross2 < 0);
 
   // Side-on compensation so the watch does not shrink at ~90°
   const sideFactor = 1 / clamp(Math.abs(normal3.z), CONFIG.sideCompMin, 1.0);
+
+  // Important:
+  // use a corrected width history for scale only, so side views do not slowly "breathe down"
+  // while keeping the wrist anchor based on the raw wrist width history.
+  const correctedWidthPx = handWidthPxRaw * sideFactor;
+  state.scaleWidthHistory.push(correctedWidthPx);
+  if (state.scaleWidthHistory.length > 6) state.scaleWidthHistory.shift();
+  const stableCorrectedWidth = median(state.scaleWidthHistory);
 
   // Build orthonormal basis
   const xAxis = along3.clone();
@@ -512,7 +521,7 @@ function processResults(results) {
   }
 
   const desiredWidthPx = clamp(
-    stableHandWidth * sideFactor * CONFIG.autoScaleFactor * CONFIG.modelScaleTrim,
+    stableCorrectedWidth * CONFIG.autoScaleFactor * CONFIG.modelScaleTrim,
     CONFIG.minScalePx,
     CONFIG.maxScalePx
   );
@@ -529,7 +538,7 @@ function processResults(results) {
     state.modelRoot.quaternion.copy(state.targetQuat);
     logLine(
       `First hand detected. width=${handWidthPxRaw.toFixed(2)} stable=${stableHandWidth.toFixed(2)} ` +
-      `side=${sideFactor.toFixed(2)} palm=${palmFacing} scale=${targetScale.toFixed(2)}`
+      `corrected=${stableCorrectedWidth.toFixed(2)} side=${sideFactor.toFixed(2)} palm=${palmFacing} scale=${targetScale.toFixed(2)}`
     );
   } else {
     const movement = Math.hypot(target.x - state.pose.x, target.y - state.pose.y);
@@ -568,6 +577,7 @@ function updateVisibilityOnMiss() {
     state.modelRoot.visible = false;
     state.pose = null;
     state.widthHistory = [];
+    state.scaleWidthHistory = [];
   }
 }
 

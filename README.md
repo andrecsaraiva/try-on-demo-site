@@ -1,13 +1,13 @@
-# Watch Try-On Orientation V13
+# Watch Try-On Orientation V14
 
 Focused only on the two requested adjustments:
 
-- start with the watch facing the correct way on the back of the hand
-- reduce side-view shrinking when the arm is rotated ~90°
+- correct the initial dorsum/palm orientation
+- reduce the side-view size drop without disturbing the parts that already work
 
 ## Changes
-- reversed the bracelet-axis flip condition:
-  - back of hand => watch face visible
-  - palm => watch underside visible
-- increased side-view scale compensation
-- raised the max allowed auto scale slightly so the side compensation is not clipped
+- inverted the palm-facing heuristic
+- kept the same flip logic, so the watch should now start on the correct side
+- added a separate corrected-width history for scale only
+- scale now stays more stable at ~90° because it no longer learns progressively smaller side widths
+- kept the wrist anchor history separate and untouched
