@@ -687,24 +687,30 @@ function drawHandOcclusion(landmarks, stableHandWidth, along2) {
   const pinky = pts[17];
   const across2 = normVec2(subVec2(pinky, index));
 
-  // Extend the mask slightly into the forearm so the bracelet can disappear under the skin.
-  const forearmCenter = {
-    x: wrist.x - along2.x * stableHandWidth * 0.95,
-    y: wrist.y - along2.y * stableHandWidth * 0.95,
+  // Safer occlusion:
+  // instead of masking the whole hand, only redraw a narrow wrist band.
+  // This hides the bracelet where it should pass under the skin,
+  // without covering the full watch face.
+  const nearCenter = {
+    x: wrist.x + along2.x * stableHandWidth * 0.08,
+    y: wrist.y + along2.y * stableHandWidth * 0.08,
   };
-  pts.push({
-    x: forearmCenter.x + across2.x * stableHandWidth * 0.52,
-    y: forearmCenter.y + across2.y * stableHandWidth * 0.52,
-  });
-  pts.push({
-    x: forearmCenter.x - across2.x * stableHandWidth * 0.52,
-    y: forearmCenter.y - across2.y * stableHandWidth * 0.52,
-  });
+  const farCenter = {
+    x: wrist.x - along2.x * stableHandWidth * 0.58,
+    y: wrist.y - along2.y * stableHandWidth * 0.58,
+  };
 
-  const hull = convexHull(pts);
-  if (hull.length < 3) return;
+  const nearHalf = stableHandWidth * 0.34;
+  const farHalf = stableHandWidth * 0.44;
 
-  const expanded = expandPolygonFromCentroid(hull, 1.06);
+  const poly = [
+    { x: nearCenter.x + across2.x * nearHalf, y: nearCenter.y + across2.y * nearHalf },
+    { x: nearCenter.x - across2.x * nearHalf, y: nearCenter.y - across2.y * nearHalf },
+    { x: farCenter.x - across2.x * farHalf, y: farCenter.y - across2.y * farHalf },
+    { x: farCenter.x + across2.x * farHalf, y: farCenter.y + across2.y * farHalf },
+  ];
+
+  const expanded = expandPolygonFromCentroid(poly, 1.04);
 
   ctx.save();
   ctx.beginPath();

@@ -1,16 +1,15 @@
-# Watch Try-On Occlusion V17
+# Watch Try-On Occlusion V18
 
-Focused only on one addition:
-
-- image-based hand occlusion over the watch
+Focused only on fixing the inverted / over-aggressive occlusion.
 
 ## What changed
-- added a dedicated `occlusion-canvas` above the 3D watch canvas
-- when a hand is detected, the page builds a hand/forearm mask from landmarks
-- the current video frame is redrawn inside that mask, over the watch
-- this hides parts of the watch that should appear under the hand
+- replaced the full-hand convex-hull occlusion with a narrow wrist-band occlusion
+- the band follows the wrist direction and extends slightly into the forearm
+- this should hide only the bracelet area that goes under the skin
+- the watch face should stay visible instead of being covered by the whole hand mask
 
-## Important
-- no palm/dorsum logic was changed
-- no anchor, rotation or scale logic was changed
-- this is a safe image-based occlusion layer, not depth occlusion
+## What did NOT change
+- anchor
+- rotation
+- scale
+- dorsum/palm logic
