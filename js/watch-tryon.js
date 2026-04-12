@@ -40,13 +40,13 @@ const CONFIG = {
   keepVisibleMisses: 12,
   hideAfterMisses: 24,
   minScalePx: 70,
-  maxScalePx: 220,
+  maxScalePx: 280,
   rotSlerpStable: 0.20,
   rotSlerpFast: 0.34,
   posAlphaStable: 0.22,
   posAlphaFast: 0.34,
   scaleAlpha: 0.10,
-  sideCompMin: 0.62, // avoid the watch shrinking too much at 90°
+  sideCompMin: 0.48, // stronger compensation so the watch shrinks less at 90°
 };
 
 const state = {

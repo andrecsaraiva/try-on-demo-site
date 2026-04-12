@@ -1,12 +1,13 @@
-# Watch Try-On Orientation V12
+# Watch Try-On Orientation V13
 
-Focused only on two issues:
+Focused only on the two requested adjustments:
 
-- prevent the watch from shrinking too much at ~90° hand twist
-- make palm-facing orientation flip to the underside instead of snapping back to face-up
+- start with the watch facing the correct way on the back of the hand
+- reduce side-view shrinking when the arm is rotated ~90°
 
-## What changed
-- keeps the v11 wrist anchor and 3D rotation basis
-- adds side-view scale compensation based on palm normal Z
-- adds palm/back detection from 2D hand winding + handedness
-- if palm is visible, applies a 180° flip around the bracelet axis
+## Changes
+- reversed the bracelet-axis flip condition:
+  - back of hand => watch face visible
+  - palm => watch underside visible
+- increased side-view scale compensation
+- raised the max allowed auto scale slightly so the side compensation is not clipped
