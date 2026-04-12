@@ -1,13 +1,11 @@
-# Watch Try-On Orientation V14
+# Watch Try-On Refine V15
 
-Focused only on the two requested adjustments:
+Focused only on two visual refinements:
 
-- correct the initial dorsum/palm orientation
-- reduce the side-view size drop without disturbing the parts that already work
+- move the watch a bit lower toward the forearm
+- make the watch size follow an estimated wrist width instead of the full hand width
 
 ## Changes
-- inverted the palm-facing heuristic
-- kept the same flip logic, so the watch should now start on the correct side
-- added a separate corrected-width history for scale only
-- scale now stays more stable at ~90° because it no longer learns progressively smaller side widths
-- kept the wrist anchor history separate and untouched
+- increased the wrist offset trim from 0.24 to 0.30
+- scale now uses an inferred wrist-width estimate (86% of corrected hand width)
+- all palm/dorsum logic and side-view logic from v14 remain unchanged

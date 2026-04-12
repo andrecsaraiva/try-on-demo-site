@@ -35,7 +35,7 @@ const CONFIG = {
   facingMode: 'environment',
   modelScaleTrim: 1.00,
   rollTrimDeg: 0,
-  wristOffsetTrim: 0.24,
+  wristOffsetTrim: 0.30,
   autoScaleFactor: 1.02,
   keepVisibleMisses: 12,
   hideAfterMisses: 24,
@@ -494,6 +494,10 @@ function processResults(results) {
   if (state.scaleWidthHistory.length > 6) state.scaleWidthHistory.shift();
   const stableCorrectedWidth = median(state.scaleWidthHistory);
 
+  // Approximate wrist width from hand width so the watch fits the wrist better.
+  // We do not have direct wrist-side landmarks, so this is an inferred value.
+  const estimatedWristWidth = stableCorrectedWidth * 0.86;
+
   // Build orthonormal basis
   const xAxis = along3.clone();
   // use absolute face normal for smooth side rotation, then add palm flip below
@@ -521,7 +525,7 @@ function processResults(results) {
   }
 
   const desiredWidthPx = clamp(
-    stableCorrectedWidth * CONFIG.autoScaleFactor * CONFIG.modelScaleTrim,
+    estimatedWristWidth * CONFIG.autoScaleFactor * CONFIG.modelScaleTrim,
     CONFIG.minScalePx,
     CONFIG.maxScalePx
   );
@@ -538,7 +542,7 @@ function processResults(results) {
     state.modelRoot.quaternion.copy(state.targetQuat);
     logLine(
       `First hand detected. width=${handWidthPxRaw.toFixed(2)} stable=${stableHandWidth.toFixed(2)} ` +
-      `corrected=${stableCorrectedWidth.toFixed(2)} side=${sideFactor.toFixed(2)} palm=${palmFacing} scale=${targetScale.toFixed(2)}`
+      `corrected=${stableCorrectedWidth.toFixed(2)} wristEst=${estimatedWristWidth.toFixed(2)} side=${sideFactor.toFixed(2)} palm=${palmFacing} scale=${targetScale.toFixed(2)}`
     );
   } else {
     const movement = Math.hypot(target.x - state.pose.x, target.y - state.pose.y);
