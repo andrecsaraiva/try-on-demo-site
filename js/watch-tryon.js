@@ -3,7 +3,6 @@ const HAND_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_lan
 
 const videoEl = document.getElementById('camera-video');
 const threeCanvas = document.getElementById('three-canvas');
-const occlusionCanvas = document.getElementById('occlusion-canvas');
 const debugCanvas = document.getElementById('debug-canvas');
 const stageEl = document.getElementById('stage');
 
@@ -61,6 +60,8 @@ const state = {
   modelRoot: null,
   modelSize: null,
   modelRefSize: 0.05,
+  occluderRoot: null,
+  occluderMesh: null,
   renderer: null,
   scene: null,
   camera: null,
@@ -299,6 +300,8 @@ async function loadWatchModel() {
         state.scene.add(root);
         state.modelLoaded = true;
 
+        createOccluder();
+
         logLine(`Watch model loaded. Size=${size.x.toFixed(4)} x ${size.y.toFixed(4)} x ${size.z.toFixed(4)} ref=${state.modelRefSize.toFixed(4)}`);
         resolve();
       },
@@ -391,10 +394,6 @@ function resizeStage() {
   state.camera.bottom = -height / 2;
   state.camera.updateProjectionMatrix();
 
-  if (occlusionCanvas) {
-    occlusionCanvas.width = width;
-    occlusionCanvas.height = height;
-  }
   debugCanvas.width = width;
   debugCanvas.height = height;
 }
@@ -428,8 +427,6 @@ function renderScene() {
 function processResults(results) {
   const debugCtx = debugCanvas.getContext('2d');
   if (debugCtx) debugCtx.clearRect(0, 0, debugCanvas.width, debugCanvas.height);
-  const occlusionCtx = occlusionCanvas ? occlusionCanvas.getContext('2d') : null;
-  if (occlusionCtx) occlusionCtx.clearRect(0, 0, occlusionCanvas.width, occlusionCanvas.height);
 
   const landmarks = results?.landmarks?.[0];
   if (!landmarks) {
@@ -547,6 +544,7 @@ function processResults(results) {
   if (!state.pose) {
     state.pose = { ...target };
     state.modelRoot.quaternion.copy(state.targetQuat);
+    if (state.occluderRoot) state.occluderRoot.quaternion.copy(state.targetQuat);
     logLine(
       `First hand detected. width=${handWidthPxRaw.toFixed(2)} stable=${stableHandWidth.toFixed(2)} ` +
       `corrected=${stableCorrectedWidth.toFixed(2)} wristEst=${estimatedWristWidth.toFixed(2)} side=${sideFactor.toFixed(2)} palm=${palmFacing} scale=${targetScale.toFixed(2)}`
@@ -563,10 +561,10 @@ function processResults(results) {
     state.pose.scale = lerp(state.pose.scale, target.scale, CONFIG.scaleAlpha);
 
     state.modelRoot.quaternion.slerp(state.targetQuat, rotAlpha);
+    if (state.occluderRoot) state.occluderRoot.quaternion.copy(state.modelRoot.quaternion);
   }
 
   placeWatch(state.pose);
-  drawHandOcclusion(landmarks, stableHandWidth, along2);
   setStatus(`${handedness} wrist detected`);
   setHint('Move slowly. Palm/back flips and side scale should be more correct now.');
 
@@ -587,26 +585,93 @@ function updateVisibilityOnMiss() {
     state.modelRoot.visible = true;
   } else if (state.misses >= CONFIG.hideAfterMisses) {
     state.modelRoot.visible = false;
+    if (state.occluderRoot) state.occluderRoot.visible = false;
     state.pose = null;
     state.widthHistory = [];
     state.scaleWidthHistory = [];
-    if (occlusionCanvas) {
-      const occlusionCtx = occlusionCanvas.getContext('2d');
-      if (occlusionCtx) occlusionCtx.clearRect(0, 0, occlusionCanvas.width, occlusionCanvas.height);
-    }
   }
+}
+
+
+function createOccluder() {
+  if (!state.libs?.THREE || !state.scene || state.occluderRoot) return;
+
+  const THREE = state.libs.THREE;
+
+  const root = new THREE.Group();
+
+  // A simple wrist-shaped occluder:
+  // cylinder axis follows the forearm / bracelet axis (local X after rotation),
+  // and it sits slightly "inside" the watch so only the back half is hidden.
+  const geometry = new THREE.CylinderGeometry(1, 1, 1, 28, 1, false);
+  const material = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    side: THREE.DoubleSide,
+  });
+  material.colorWrite = false;
+  material.depthWrite = true;
+  material.depthTest = true;
+
+  const mesh = new THREE.Mesh(geometry, material);
+
+  // CylinderGeometry points along local Y by default.
+  // Rotate it so its long axis becomes local X, which follows the arm.
+  mesh.rotation.z = Math.PI / 2;
+
+  // Dimensions are expressed in model-local units, then multiplied by pose.scale.
+  // Tuned to hide only the part of the watch that goes "into" the wrist.
+  const cylinderLength = state.modelRefSize * 1.55;
+  const cylinderRadius = state.modelRefSize * 0.42;
+
+  mesh.scale.set(cylinderLength, cylinderRadius * 2.0, cylinderRadius * 2.0);
+
+  // Push the occluder into the wrist volume, behind the visible face of the watch.
+  // Local Z is the watch face normal.
+  mesh.position.set(0, 0, -state.modelRefSize * 0.42);
+
+  // Slightly bias toward the forearm so the strap disappears under the wrist,
+  // without eating too much of the front dial.
+  mesh.position.x = -state.modelRefSize * 0.06;
+
+  mesh.renderOrder = 0;
+  mesh.frustumCulled = false;
+
+  root.add(mesh);
+  root.visible = false;
+  root.renderOrder = 0;
+
+  state.occluderRoot = root;
+  state.occluderMesh = mesh;
+
+  state.scene.add(root);
+
+  if (state.modelRoot) {
+    state.modelRoot.traverse((obj) => {
+      obj.renderOrder = 1;
+    });
+  }
+
+  logLine(
+    `3D occluder created. length=${cylinderLength.toFixed(4)} radius=${cylinderRadius.toFixed(4)} offsetZ=${(-state.modelRefSize * 0.42).toFixed(4)}`
+  );
 }
 
 function placeWatch(pose) {
   if (!state.modelRoot) return;
   const rect = stageEl.getBoundingClientRect();
+  const px = pose.x - rect.width / 2;
+  const py = -(pose.y - rect.height / 2);
+
   state.modelRoot.visible = true;
-  state.modelRoot.position.set(
-    pose.x - rect.width / 2,
-    -(pose.y - rect.height / 2),
-    0
-  );
+  state.modelRoot.position.set(px, py, 0);
   state.modelRoot.scale.setScalar(pose.scale);
+
+  if (state.occluderRoot) {
+    state.occluderRoot.visible = true;
+    state.occluderRoot.position.set(px, py, 0);
+    state.occluderRoot.scale.setScalar(pose.scale);
+    state.occluderRoot.quaternion.copy(state.modelRoot.quaternion);
+  }
 }
 
 function mapLandmark(lm) {
@@ -673,132 +738,6 @@ function drawDebug(ctx, landmarks, highlightIndices = []) {
   });
 
   ctx.restore();
-}
-
-
-function drawHandOcclusion(landmarks, stableHandWidth, along2) {
-  if (!occlusionCanvas || !videoEl.videoWidth || !videoEl.videoHeight) return;
-  const ctx = occlusionCanvas.getContext('2d');
-  if (!ctx) return;
-
-  const pts = landmarks.map(mapLandmark);
-  const wrist = pts[0];
-  const index = pts[5];
-  const pinky = pts[17];
-  const across2 = normVec2(subVec2(pinky, index));
-
-  // Safer occlusion:
-  // instead of masking the whole hand, only redraw a narrow wrist band.
-  // This hides the bracelet where it should pass under the skin,
-  // without covering the full watch face.
-  const nearCenter = {
-    x: wrist.x + along2.x * stableHandWidth * 0.08,
-    y: wrist.y + along2.y * stableHandWidth * 0.08,
-  };
-  const farCenter = {
-    x: wrist.x - along2.x * stableHandWidth * 0.58,
-    y: wrist.y - along2.y * stableHandWidth * 0.58,
-  };
-
-  const nearHalf = stableHandWidth * 0.34;
-  const farHalf = stableHandWidth * 0.44;
-
-  const poly = [
-    { x: nearCenter.x + across2.x * nearHalf, y: nearCenter.y + across2.y * nearHalf },
-    { x: nearCenter.x - across2.x * nearHalf, y: nearCenter.y - across2.y * nearHalf },
-    { x: farCenter.x - across2.x * farHalf, y: farCenter.y - across2.y * farHalf },
-    { x: farCenter.x + across2.x * farHalf, y: farCenter.y + across2.y * farHalf },
-  ];
-
-  const expanded = expandPolygonFromCentroid(poly, 1.04);
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(expanded[0].x, expanded[0].y);
-  for (let i = 1; i < expanded.length; i += 1) {
-    ctx.lineTo(expanded[i].x, expanded[i].y);
-  }
-  ctx.closePath();
-  ctx.clip();
-
-  drawCoveredVideoFrame(ctx);
-  ctx.restore();
-}
-
-function drawCoveredVideoFrame(ctx) {
-  const stageW = occlusionCanvas.width;
-  const stageH = occlusionCanvas.height;
-  const videoW = videoEl.videoWidth;
-  const videoH = videoEl.videoHeight;
-  if (!stageW || !stageH || !videoW || !videoH) return;
-
-  const stageAspect = stageW / stageH;
-  const videoAspect = videoW / videoH;
-
-  let sx = 0;
-  let sy = 0;
-  let sw = videoW;
-  let sh = videoH;
-
-  if (videoAspect > stageAspect) {
-    sw = videoH * stageAspect;
-    sx = (videoW - sw) / 2;
-  } else {
-    sh = videoW / stageAspect;
-    sy = (videoH - sh) / 2;
-  }
-
-  ctx.save();
-  if (state.mirrorPreview) {
-    ctx.translate(stageW, 0);
-    ctx.scale(-1, 1);
-  }
-  ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, stageW, stageH);
-  ctx.restore();
-}
-
-function convexHull(points) {
-  const pts = [...points]
-    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
-    .sort((a, b) => (a.x === b.x ? a.y - b.y : a.x - b.x));
-
-  if (pts.length <= 1) return pts;
-
-  const lower = [];
-  for (const p of pts) {
-    while (lower.length >= 2 && crossHull(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
-      lower.pop();
-    }
-    lower.push(p);
-  }
-
-  const upper = [];
-  for (let i = pts.length - 1; i >= 0; i -= 1) {
-    const p = pts[i];
-    while (upper.length >= 2 && crossHull(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
-      upper.pop();
-    }
-    upper.push(p);
-  }
-
-  lower.pop();
-  upper.pop();
-  return lower.concat(upper);
-}
-
-function crossHull(o, a, b) {
-  return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-}
-
-function expandPolygonFromCentroid(points, factor) {
-  const centroid = points.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
-  centroid.x /= points.length;
-  centroid.y /= points.length;
-
-  return points.map((p) => ({
-    x: centroid.x + (p.x - centroid.x) * factor,
-    y: centroid.y + (p.y - centroid.y) * factor,
-  }));
 }
 
 function setStatus(text) { statusPill.textContent = text; }
