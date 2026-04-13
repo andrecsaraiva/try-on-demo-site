@@ -1,5 +1,6 @@
-const WATCH_MODEL_PATH = './assets/models/relogio.glb';
+const WATCH_MODEL_PATH = './assets/models/relogio-tryon.glb';
 const HAND_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const HDR_ENV_PATH = './assets/hdr/glasshouse_interior_4k_blur_exp_sat.hdr';
 
 const videoEl = document.getElementById('camera-video');
 const threeCanvas = document.getElementById('three-canvas');
@@ -30,31 +31,26 @@ const metricCamera = document.getElementById('metric-camera');
 const metricVideo = document.getElementById('metric-video');
 const metricDetections = document.getElementById('metric-detections');
 const metricLastHand = document.getElementById('metric-last-hand');
-const metricModelRef = document.getElementById('metric-model-ref');
-const metricModelSize = document.getElementById('metric-model-size');
-const metricScale = document.getElementById('metric-scale');
-const metricTargetScale = document.getElementById('metric-target-scale');
-const metricSideFactor = document.getElementById('metric-side-factor');
-const metricWristEst = document.getElementById('metric-wrist-est');
-const metricCameraRange = document.getElementById('metric-camera-range');
-const metricMaterials = document.getElementById('metric-materials');
 
 const CONFIG = {
   facingMode: 'environment',
   modelScaleTrim: 1.00,
   rollTrimDeg: 0,
-  wristOffsetTrim: 0.34,
+  wristOffsetTrim: 0.45,
   autoScaleFactor: 1.02,
-  keepVisibleMisses: 12,
-  hideAfterMisses: 24,
+  keepVisibleMisses: 90,
+  hideAfterMisses: 240,
   minScalePx: 70,
-  maxScalePx: 220,
+  maxScalePx: 160,
   rotSlerpStable: 0.20,
   rotSlerpFast: 0.34,
   posAlphaStable: 0.22,
   posAlphaFast: 0.34,
   scaleAlpha: 0.10,
-  sideCompMin: 0.58, // diagnostic: reduce side-view blow-up
+  sideCompMin: 0.70,
+  reappearScaleAlpha: 0.16,
+  lostHintDelayMisses: 28,
+  envMapIntensity: 1.0,
 };
 
 const state = {
@@ -71,12 +67,15 @@ const state = {
   renderer: null,
   scene: null,
   camera: null,
+  pmremGenerator: null,
   lastVideoTime: -1,
   lastDetectionTime: 0,
   detections: 0,
   lastHandText: '—',
   misses: 0,
   pose: null,
+  lastTrackedScale: 1,
+  lastTrackedAt: 0,
   targetQuat: null,
   correctionQuat: null,
   tmpQuat: null,
@@ -86,7 +85,6 @@ const state = {
   logLines: [],
   widthHistory: [],
   scaleWidthHistory: [],
-  diagLastLogTime: 0,
 };
 
 watchScaleOutput.textContent = Number(watchScaleSlider.value).toFixed(2);
@@ -174,16 +172,19 @@ async function boot() {
   const [
     THREE,
     { GLTFLoader },
+    { RGBELoader },
     visionBundle,
   ] = await Promise.all([
     import('https://esm.sh/three@0.174.0'),
     import('https://esm.sh/three@0.174.0/examples/jsm/loaders/GLTFLoader'),
+    import('https://esm.sh/three@0.174.0/examples/jsm/loaders/RGBELoader'),
     import('https://unpkg.com/@mediapipe/tasks-vision@0.10.34/vision_bundle.mjs'),
   ]);
 
   state.libs = {
     THREE,
     GLTFLoader,
+    RGBELoader,
     FilesetResolver: visionBundle.FilesetResolver,
     HandLandmarker: visionBundle.HandLandmarker,
   };
@@ -194,6 +195,7 @@ async function boot() {
   state.correctionQuat = new THREE.Quaternion();
 
   setupThree();
+  await loadEnvironment();
   await loadWatchModel();
   await initHandLandmarker();
 
@@ -262,22 +264,39 @@ function setupThree() {
   state.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
   state.scene = new THREE.Scene();
-  state.camera = new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 2000);
+  state.pmremGenerator = new THREE.PMREMGenerator(state.renderer);
+  state.camera = new THREE.OrthographicCamera(-100, 100, 100, -100, 1, 500);
   state.camera.position.z = 1000;
-  if (metricCameraRange) metricCameraRange.textContent = `${state.camera.near} / ${state.camera.far}`;
 
-  const ambient = new THREE.AmbientLight(0xffffff, 1.32);
+  const ambient = new THREE.AmbientLight(0xffffff, 0.95);
   state.scene.add(ambient);
 
-  const key = new THREE.DirectionalLight(0xffffff, 1.18);
+  const key = new THREE.DirectionalLight(0xffffff, 0.90);
   key.position.set(0, 0, 420);
   state.scene.add(key);
 
-  const fill = new THREE.DirectionalLight(0xffffff, 0.55);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.40);
   fill.position.set(-250, 120, 240);
   state.scene.add(fill);
 
   resizeStage();
+}
+
+
+async function loadEnvironment() {
+  if (!state.libs?.THREE || !state.libs?.RGBELoader || !state.pmremGenerator || !state.scene) return;
+
+  try {
+    logLine(`Loading HDR environment from ${HDR_ENV_PATH}`);
+    const hdrLoader = new state.libs.RGBELoader();
+    const hdrTexture = await hdrLoader.loadAsync(HDR_ENV_PATH);
+    const envRT = state.pmremGenerator.fromEquirectangular(hdrTexture);
+    state.scene.environment = envRT.texture;
+    hdrTexture.dispose();
+    logLine('HDR environment loaded for reflections.');
+  } catch (error) {
+    logLine(`HDR environment failed: ${error?.message || error}`);
+  }
 }
 
 async function loadWatchModel() {
@@ -306,31 +325,21 @@ async function loadWatchModel() {
         const dims = [size.x, size.y, size.z].sort((a, b) => a - b);
         state.modelRefSize = dims[1] || size.x || 0.05;
 
-        // Material diagnostics
-        let transparentCount = 0;
-        let doubleSidedCount = 0;
-        let depthWriteOffCount = 0;
-        let blendCount = 0;
-
+        // Material pass: keep physically based reflections usable with the HDR env,
+        // without changing the camera background.
         content.traverse((obj) => {
           if (!obj.isMesh || !obj.material) return;
           const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
           for (const mat of mats) {
-            if (mat.transparent) transparentCount += 1;
-            if (mat.side === THREE.DoubleSide) doubleSidedCount += 1;
-            if (mat.depthWrite === false) depthWriteOffCount += 1;
-            if (mat.blending && mat.blending !== THREE.NormalBlending) blendCount += 1;
+            if ('envMapIntensity' in mat) mat.envMapIntensity = CONFIG.envMapIntensity;
+            if ('metalness' in mat && mat.metalness > 0.1) mat.needsUpdate = true;
           }
         });
-
-        if (metricModelRef) metricModelRef.textContent = state.modelRefSize.toFixed(4);
-        if (metricModelSize) metricModelSize.textContent = `${size.x.toFixed(3)} × ${size.y.toFixed(3)} × ${size.z.toFixed(3)}`;
-        if (metricMaterials) metricMaterials.textContent = `transp:${transparentCount} ds:${doubleSidedCount} dwOff:${depthWriteOffCount} blend:${blendCount}`;
 
         state.scene.add(root);
         state.modelLoaded = true;
 
-        logLine(`Watch model loaded. Size=${size.x.toFixed(4)} x ${size.y.toFixed(4)} x ${size.z.toFixed(4)} ref=${state.modelRefSize.toFixed(4)} mats[t=${transparentCount},ds=${doubleSidedCount},dwOff=${depthWriteOffCount},blend=${blendCount}]`);
+        logLine(`Watch model loaded. Size=${size.x.toFixed(4)} x ${size.y.toFixed(4)} x ${size.z.toFixed(4)} ref=${state.modelRefSize.toFixed(4)}`);
         resolve();
       },
       undefined,
@@ -459,9 +468,29 @@ function processResults(results) {
   const landmarks = results?.landmarks?.[0];
   if (!landmarks) {
     state.misses += 1;
-    if ([1, 10, 30].includes(state.misses)) {
+    if ([1, 10, 30, 60, 120].includes(state.misses)) {
       logLine(`No hand detected. misses=${state.misses}`);
     }
+
+    // Keep the last tracked pose alive much longer so close-up inspection
+    // does not immediately kill the watch when the fingers leave frame.
+    if (state.pose && state.misses < CONFIG.hideAfterMisses) {
+      state.modelRoot.visible = true;
+
+      // Freeze the last good pose. This does not create new tracking data,
+      // it only keeps the watch visible until fingers come back.
+      placeWatch(state.pose);
+
+      if (state.misses < CONFIG.lostHintDelayMisses) {
+        setStatus('Close-up hold');
+        setHint('Keeping the last tracked watch position while the hand is partially out of frame.');
+      } else {
+        setStatus('Reacquire hand');
+        setHint('Bring fingers back into frame to refresh the tracking.');
+      }
+      return;
+    }
+
     if (state.misses > 10) {
       setStatus('Searching for a wrist…');
       setHint('Show the full hand and wrist. Fingers slightly apart works best.');
@@ -563,10 +592,6 @@ function processResults(results) {
   );
   const targetScale = desiredWidthPx / Math.max(state.modelRefSize, 0.001);
 
-  if (metricSideFactor) metricSideFactor.textContent = sideFactor.toFixed(3);
-  if (metricWristEst) metricWristEst.textContent = estimatedWristWidth.toFixed(2);
-  if (metricTargetScale) metricTargetScale.textContent = targetScale.toFixed(2);
-
   const target = {
     x: anchor2.x,
     y: anchor2.y,
@@ -576,6 +601,8 @@ function processResults(results) {
   if (!state.pose) {
     state.pose = { ...target };
     state.modelRoot.quaternion.copy(state.targetQuat);
+    state.lastTrackedScale = targetScale;
+    state.lastTrackedAt = performance.now();
     logLine(
       `First hand detected. width=${handWidthPxRaw.toFixed(2)} stable=${stableHandWidth.toFixed(2)} ` +
       `corrected=${stableCorrectedWidth.toFixed(2)} wristEst=${estimatedWristWidth.toFixed(2)} side=${sideFactor.toFixed(2)} palm=${palmFacing} scale=${targetScale.toFixed(2)}`
@@ -595,14 +622,6 @@ function processResults(results) {
   }
 
   placeWatch(state.pose);
-  if (metricScale) metricScale.textContent = state.pose.scale.toFixed(2);
-
-  const nowDiag = performance.now();
-  if (nowDiag - state.diagLastLogTime > 1000) {
-    logLine(`diag scale=${state.pose.scale.toFixed(2)} target=${targetScale.toFixed(2)} side=${sideFactor.toFixed(3)} wrist=${estimatedWristWidth.toFixed(2)} rawWidth=${handWidthPxRaw.toFixed(2)}`);
-    state.diagLastLogTime = nowDiag;
-  }
-
   setStatus(`${handedness} wrist detected`);
   setHint('Move slowly. Palm/back flips and side scale should be more correct now.');
 
