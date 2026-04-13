@@ -60,8 +60,6 @@ const state = {
   modelRoot: null,
   modelSize: null,
   modelRefSize: 0.05,
-  dialCenterLocal: null,
-  dialSizeLocal: null,
   renderer: null,
   scene: null,
   camera: null,
@@ -184,7 +182,7 @@ async function boot() {
   state.targetQuat = new THREE.Quaternion();
   state.tmpQuat = new THREE.Quaternion();
   state.tmpMat4 = new THREE.Matrix4();
-  state.correctionQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2);
+  state.correctionQuat = new THREE.Quaternion();
 
   setupThree();
   await loadWatchModel();
@@ -283,44 +281,24 @@ async function loadWatchModel() {
         const root = new THREE.Group();
         const content = gltf.scene;
 
-        const wholeBox = new THREE.Box3().setFromObject(content);
-        const size = wholeBox.getSize(new THREE.Vector3());
+        const box = new THREE.Box3().setFromObject(content);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
 
-        // Preserve the authored pivot/origin from the corrected GLB.
-        // The user moved it to the watch case / dial center in Blender.
+        content.position.sub(center);
         root.add(content);
         root.visible = false;
 
         state.modelRoot = root;
         state.modelSize = size;
 
-        const dialCandidates = [];
-        const dialNameRegex = /(glass|image|text|dial|bezel|sphere_glass|circle_image)/i;
-        content.traverse((obj) => {
-          if (obj.isMesh && dialNameRegex.test(obj.name || '')) {
-            dialCandidates.push(obj);
-          }
-        });
-
-        if (dialCandidates.length > 0) {
-          const dialBox = new THREE.Box3();
-          for (const mesh of dialCandidates) {
-            dialBox.expandByObject(mesh);
-          }
-          const dialCenter = dialBox.getCenter(new THREE.Vector3());
-          const dialSize = dialBox.getSize(new THREE.Vector3());
-          state.dialCenterLocal = dialCenter;
-          state.dialSizeLocal = dialSize;
-          state.modelRefSize = Math.max(dialSize.x || 0, dialSize.y || 0, 0.05);
-        } else {
-          const dims = [size.x, size.y, size.z].sort((a, b) => a - b);
-          state.modelRefSize = dims[0] || size.x || 0.05;
-        }
+        const dims = [size.x, size.y, size.z].sort((a, b) => a - b);
+        state.modelRefSize = dims[1] || size.x || 0.05;
 
         state.scene.add(root);
         state.modelLoaded = true;
 
-        logLine(`Watch model loaded. Size=${size.x.toFixed(4)} x ${size.y.toFixed(4)} x ${size.z.toFixed(4)} ref=${state.modelRefSize.toFixed(4)} (authored pivot preserved)`);
+        logLine(`Watch model loaded. Size=${size.x.toFixed(4)} x ${size.y.toFixed(4)} x ${size.z.toFixed(4)} ref=${state.modelRefSize.toFixed(4)}`);
         resolve();
       },
       undefined,
