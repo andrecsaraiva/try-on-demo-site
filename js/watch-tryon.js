@@ -35,7 +35,7 @@ const CONFIG = {
   facingMode: 'environment',
   modelScaleTrim: 1.00,
   rollTrimDeg: 0,
-  wristOffsetTrim: 0.37,
+  wristOffsetTrim: 0.34,
   autoScaleFactor: 1.02,
   keepVisibleMisses: 12,
   hideAfterMisses: 24,
@@ -60,8 +60,8 @@ const state = {
   modelRoot: null,
   modelSize: null,
   modelRefSize: 0.05,
-  occluderRoot: null,
-  occluderMesh: null,
+  dialCenterLocal: null,
+  dialSizeLocal: null,
   renderer: null,
   scene: null,
   camera: null,
@@ -184,7 +184,7 @@ async function boot() {
   state.targetQuat = new THREE.Quaternion();
   state.tmpQuat = new THREE.Quaternion();
   state.tmpMat4 = new THREE.Matrix4();
-  state.correctionQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 1, 1).normalize(), 2 * Math.PI / 3);
+  state.correctionQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2);
 
   setupThree();
   await loadWatchModel();
@@ -283,22 +283,21 @@ async function loadWatchModel() {
         const root = new THREE.Group();
         const content = gltf.scene;
 
-        const box = new THREE.Box3().setFromObject(content);
-        const size = box.getSize(new THREE.Vector3());
+        const wholeBox = new THREE.Box3().setFromObject(content);
+        const size = wholeBox.getSize(new THREE.Vector3());
 
-        // Keep the authored origin/pivot from the corrected GLB.
-        // This GLB was rebuilt with the pivot at the watch case / dial center.
+        // Preserve the authored pivot/origin from the corrected GLB.
+        // The user moved it to the watch case / dial center in Blender.
         root.add(content);
         root.visible = false;
 
         state.modelRoot = root;
         state.modelSize = size;
 
-        // Use a dial-like reference size instead of the overall strap span.
         const dialCandidates = [];
         const dialNameRegex = /(glass|image|text|dial|bezel|sphere_glass|circle_image)/i;
         content.traverse((obj) => {
-          if (obj.isMesh && dialNameRegex.test(obj.name || "")) {
+          if (obj.isMesh && dialNameRegex.test(obj.name || '')) {
             dialCandidates.push(obj);
           }
         });
@@ -308,7 +307,10 @@ async function loadWatchModel() {
           for (const mesh of dialCandidates) {
             dialBox.expandByObject(mesh);
           }
+          const dialCenter = dialBox.getCenter(new THREE.Vector3());
           const dialSize = dialBox.getSize(new THREE.Vector3());
+          state.dialCenterLocal = dialCenter;
+          state.dialSizeLocal = dialSize;
           state.modelRefSize = Math.max(dialSize.x || 0, dialSize.y || 0, 0.05);
         } else {
           const dims = [size.x, size.y, size.z].sort((a, b) => a - b);
@@ -317,8 +319,6 @@ async function loadWatchModel() {
 
         state.scene.add(root);
         state.modelLoaded = true;
-
-        createOccluder();
 
         logLine(`Watch model loaded. Size=${size.x.toFixed(4)} x ${size.y.toFixed(4)} x ${size.z.toFixed(4)} ref=${state.modelRefSize.toFixed(4)} (authored pivot preserved)`);
         resolve();
@@ -562,7 +562,6 @@ function processResults(results) {
   if (!state.pose) {
     state.pose = { ...target };
     state.modelRoot.quaternion.copy(state.targetQuat);
-    if (state.occluderRoot) state.occluderRoot.quaternion.copy(state.targetQuat);
     logLine(
       `First hand detected. width=${handWidthPxRaw.toFixed(2)} stable=${stableHandWidth.toFixed(2)} ` +
       `corrected=${stableCorrectedWidth.toFixed(2)} wristEst=${estimatedWristWidth.toFixed(2)} side=${sideFactor.toFixed(2)} palm=${palmFacing} scale=${targetScale.toFixed(2)}`
@@ -579,7 +578,6 @@ function processResults(results) {
     state.pose.scale = lerp(state.pose.scale, target.scale, CONFIG.scaleAlpha);
 
     state.modelRoot.quaternion.slerp(state.targetQuat, rotAlpha);
-    if (state.occluderRoot) state.occluderRoot.quaternion.copy(state.modelRoot.quaternion);
   }
 
   placeWatch(state.pose);
@@ -603,93 +601,22 @@ function updateVisibilityOnMiss() {
     state.modelRoot.visible = true;
   } else if (state.misses >= CONFIG.hideAfterMisses) {
     state.modelRoot.visible = false;
-    if (state.occluderRoot) state.occluderRoot.visible = false;
     state.pose = null;
     state.widthHistory = [];
     state.scaleWidthHistory = [];
   }
 }
 
-
-function createOccluder() {
-  if (!state.libs?.THREE || !state.scene || state.occluderRoot) return;
-
-  const THREE = state.libs.THREE;
-
-  const root = new THREE.Group();
-
-  // A simple wrist-shaped occluder:
-  // cylinder axis follows the forearm / bracelet axis (local X after rotation),
-  // and it sits slightly "inside" the watch so only the back half is hidden.
-  const geometry = new THREE.CylinderGeometry(1, 1, 1, 28, 1, false);
-  const material = new THREE.MeshBasicMaterial({
-    color: 0x000000,
-    side: THREE.DoubleSide,
-  });
-  material.colorWrite = false;
-  material.depthWrite = true;
-  material.depthTest = true;
-
-  const mesh = new THREE.Mesh(geometry, material);
-
-  // CylinderGeometry points along local Y by default.
-  // Rotate it so its long axis becomes local X, which follows the arm.
-  mesh.rotation.z = Math.PI / 2;
-
-  // Dimensions are expressed in model-local units, then multiplied by pose.scale.
-  // Tuned to hide only the part of the watch that goes "into" the wrist.
-  const cylinderLength = state.modelRefSize * 1.28;
-  const cylinderRadius = state.modelRefSize * 0.26;
-
-  mesh.scale.set(cylinderLength, cylinderRadius * 2.0, cylinderRadius * 1.7);
-
-  // Push the occluder into the wrist volume, behind the visible face of the watch.
-  // Local Z is the watch face normal.
-  mesh.position.set(0, 0, -state.modelRefSize * 0.62);
-
-  // Slightly bias toward the forearm so the strap disappears under the wrist,
-  // without eating too much of the front dial.
-  mesh.position.x = -state.modelRefSize * 0.12;
-
-  mesh.renderOrder = 0;
-  mesh.frustumCulled = false;
-
-  root.add(mesh);
-  root.visible = false;
-  root.renderOrder = 0;
-
-  state.occluderRoot = root;
-  state.occluderMesh = mesh;
-
-  state.scene.add(root);
-
-  if (state.modelRoot) {
-    state.modelRoot.traverse((obj) => {
-      obj.renderOrder = 1;
-    });
-  }
-
-  logLine(
-    `3D occluder created. length=${cylinderLength.toFixed(4)} radius=${cylinderRadius.toFixed(4)} offsetZ=${(-state.modelRefSize * 0.42).toFixed(4)}`
-  );
-}
-
 function placeWatch(pose) {
   if (!state.modelRoot) return;
   const rect = stageEl.getBoundingClientRect();
-  const px = pose.x - rect.width / 2;
-  const py = -(pose.y - rect.height / 2);
-
   state.modelRoot.visible = true;
-  state.modelRoot.position.set(px, py, 0);
+  state.modelRoot.position.set(
+    pose.x - rect.width / 2,
+    -(pose.y - rect.height / 2),
+    0
+  );
   state.modelRoot.scale.setScalar(pose.scale);
-
-  if (state.occluderRoot) {
-    state.occluderRoot.visible = true;
-    state.occluderRoot.position.set(px, py, 0);
-    state.occluderRoot.scale.setScalar(pose.scale);
-    state.occluderRoot.quaternion.copy(state.modelRoot.quaternion);
-  }
 }
 
 function mapLandmark(lm) {

@@ -1,16 +1,20 @@
-# Watch Try-On V20 Restored + Corrected GLB7 (V22)
+# Watch Try-On Pre-Occlusion + GLB9 (V23)
 
-This package restores the V20 behavior baseline, but replaces the model with the user's corrected `relogio(7).glb`.
+This package restores the last version before occlusion experiments and uses the uploaded corrected `relogio(9).glb`.
+
+## Base
+- based on `watch-tryon-refine-v16`
+- no 2D occlusion
+- no 3D occluder
 
 ## What changed
-- based on `watch-tryon-3d-occluder-v20`
-- replaces `assets/models/relogio.glb` with the uploaded `relogio(7).glb`
-- preserves the authored pivot/origin from the corrected GLB
-- aligns the corrected GLB orientation with a local correction quaternion
-- keeps the V20 3D occluder approach
+- replaced `assets/models/relogio.glb` with `relogio(9).glb`
+- preserved the authored pivot/origin from the corrected GLB
+- aligned the corrected GLB orientation to the tracker convention
+- uses dial width as the reference size when possible
 
-## What was intentionally NOT changed
+## What did NOT change
 - wrist anchor logic
 - palm/dorsum logic
 - side-scale logic
-- V20 occluder dimensions
+- overall UI/UX from v16
