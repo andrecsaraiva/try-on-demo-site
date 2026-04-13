@@ -35,7 +35,7 @@ const CONFIG = {
   facingMode: 'environment',
   modelScaleTrim: 1.00,
   rollTrimDeg: 0,
-  wristOffsetTrim: 0.37,
+  wristOffsetTrim: 0.34,
   autoScaleFactor: 1.02,
   keepVisibleMisses: 12,
   hideAfterMisses: 24,
@@ -60,8 +60,8 @@ const state = {
   modelRoot: null,
   modelSize: null,
   modelRefSize: 0.05,
-  occluderRoot: null,
-  occluderMesh: null,
+  dialCenterLocal: null,
+  dialSizeLocal: null,
   renderer: null,
   scene: null,
   camera: null,
@@ -184,7 +184,7 @@ async function boot() {
   state.targetQuat = new THREE.Quaternion();
   state.tmpQuat = new THREE.Quaternion();
   state.tmpMat4 = new THREE.Matrix4();
-  state.correctionQuat = new THREE.Quaternion();
+  state.correctionQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2);
 
   setupThree();
   await loadWatchModel();
@@ -283,26 +283,56 @@ async function loadWatchModel() {
         const root = new THREE.Group();
         const content = gltf.scene;
 
-        const box = new THREE.Box3().setFromObject(content);
-        const center = box.getCenter(new THREE.Vector3());
-        const size = box.getSize(new THREE.Vector3());
+        const wholeBox = new THREE.Box3().setFromObject(content);
+        const wholeSize = wholeBox.getSize(new THREE.Vector3());
 
-        content.position.sub(center);
+        // Try to derive a better pivot from the watch face / glass / dial meshes.
+        const dialCandidates = [];
+        const dialNameRegex = /(glass|image|text|dial|bezel|sphere_glass|circle_image)/i;
+
+        content.traverse((obj) => {
+          if (obj.isMesh && dialNameRegex.test(obj.name || "")) {
+            dialCandidates.push(obj);
+          }
+        });
+
+        let pivotBox = null;
+        if (dialCandidates.length > 0) {
+          pivotBox = new THREE.Box3();
+          for (const mesh of dialCandidates) {
+            pivotBox.expandByObject(mesh);
+          }
+        } else {
+          // Fallback to the overall box if named dial parts are not found.
+          pivotBox = wholeBox.clone();
+        }
+
+        const pivotCenter = pivotBox.getCenter(new THREE.Vector3());
+        const pivotSize = pivotBox.getSize(new THREE.Vector3());
+
+        // Recenter the authored model around the dial center, not the full strap bbox center.
+        content.position.sub(pivotCenter);
+
         root.add(content);
         root.visible = false;
 
         state.modelRoot = root;
-        state.modelSize = size;
+        state.modelSize = wholeSize;
+        state.dialCenterLocal = pivotCenter.clone();
+        state.dialSizeLocal = pivotSize.clone();
 
-        const dims = [size.x, size.y, size.z].sort((a, b) => a - b);
-        state.modelRefSize = dims[1] || size.x || 0.05;
+        // For watch try-on, dial width is a better reference than full-strap extents.
+        state.modelRefSize = Math.max(pivotSize.x || 0, pivotSize.y || 0, 0.05);
 
         state.scene.add(root);
         state.modelLoaded = true;
 
-        createOccluder();
-
-        logLine(`Watch model loaded. Size=${size.x.toFixed(4)} x ${size.y.toFixed(4)} x ${size.z.toFixed(4)} ref=${state.modelRefSize.toFixed(4)}`);
+        logLine(
+          `Watch model loaded. whole=${wholeSize.x.toFixed(4)} x ${wholeSize.y.toFixed(4)} x ${wholeSize.z.toFixed(4)} ` +
+          `dialCenter=${pivotCenter.x.toFixed(4)},${pivotCenter.y.toFixed(4)},${pivotCenter.z.toFixed(4)} ` +
+          `dialSize=${pivotSize.x.toFixed(4)} x ${pivotSize.y.toFixed(4)} x ${pivotSize.z.toFixed(4)} ` +
+          `ref=${state.modelRefSize.toFixed(4)}`
+        );
         resolve();
       },
       undefined,
@@ -544,10 +574,9 @@ function processResults(results) {
   if (!state.pose) {
     state.pose = { ...target };
     state.modelRoot.quaternion.copy(state.targetQuat);
-    if (state.occluderRoot) state.occluderRoot.quaternion.copy(state.targetQuat);
     logLine(
       `First hand detected. width=${handWidthPxRaw.toFixed(2)} stable=${stableHandWidth.toFixed(2)} ` +
-      `corrected=${stableCorrectedWidth.toFixed(2)} wristEst=${estimatedWristWidth.toFixed(2)} side=${sideFactor.toFixed(2)} palm=${palmFacing} scale=${targetScale.toFixed(2)}`
+      `corrected=${stableCorrectedWidth.toFixed(2)} wristEst=${estimatedWristWidth.toFixed(2)} side=${sideFactor.toFixed(2)} palm=${palmFacing} scale=${targetScale.toFixed(2)} ref=${state.modelRefSize.toFixed(4)}`
     );
   } else {
     const movement = Math.hypot(target.x - state.pose.x, target.y - state.pose.y);
@@ -561,7 +590,6 @@ function processResults(results) {
     state.pose.scale = lerp(state.pose.scale, target.scale, CONFIG.scaleAlpha);
 
     state.modelRoot.quaternion.slerp(state.targetQuat, rotAlpha);
-    if (state.occluderRoot) state.occluderRoot.quaternion.copy(state.modelRoot.quaternion);
   }
 
   placeWatch(state.pose);
@@ -585,93 +613,22 @@ function updateVisibilityOnMiss() {
     state.modelRoot.visible = true;
   } else if (state.misses >= CONFIG.hideAfterMisses) {
     state.modelRoot.visible = false;
-    if (state.occluderRoot) state.occluderRoot.visible = false;
     state.pose = null;
     state.widthHistory = [];
     state.scaleWidthHistory = [];
   }
 }
 
-
-function createOccluder() {
-  if (!state.libs?.THREE || !state.scene || state.occluderRoot) return;
-
-  const THREE = state.libs.THREE;
-
-  const root = new THREE.Group();
-
-  // A simple wrist-shaped occluder:
-  // cylinder axis follows the forearm / bracelet axis (local X after rotation),
-  // and it sits slightly "inside" the watch so only the back half is hidden.
-  const geometry = new THREE.CylinderGeometry(1, 1, 1, 28, 1, false);
-  const material = new THREE.MeshBasicMaterial({
-    color: 0x000000,
-    side: THREE.DoubleSide,
-  });
-  material.colorWrite = false;
-  material.depthWrite = true;
-  material.depthTest = true;
-
-  const mesh = new THREE.Mesh(geometry, material);
-
-  // CylinderGeometry points along local Y by default.
-  // Rotate it so its long axis becomes local X, which follows the arm.
-  mesh.rotation.z = Math.PI / 2;
-
-  // Dimensions are expressed in model-local units, then multiplied by pose.scale.
-  // Tuned to hide only the part of the watch that goes "into" the wrist.
-  const cylinderLength = state.modelRefSize * 1.28;
-  const cylinderRadius = state.modelRefSize * 0.26;
-
-  mesh.scale.set(cylinderLength, cylinderRadius * 2.0, cylinderRadius * 1.7);
-
-  // Push the occluder into the wrist volume, behind the visible face of the watch.
-  // Local Z is the watch face normal.
-  mesh.position.set(0, 0, -state.modelRefSize * 0.62);
-
-  // Slightly bias toward the forearm so the strap disappears under the wrist,
-  // without eating too much of the front dial.
-  mesh.position.x = -state.modelRefSize * 0.12;
-
-  mesh.renderOrder = 0;
-  mesh.frustumCulled = false;
-
-  root.add(mesh);
-  root.visible = false;
-  root.renderOrder = 0;
-
-  state.occluderRoot = root;
-  state.occluderMesh = mesh;
-
-  state.scene.add(root);
-
-  if (state.modelRoot) {
-    state.modelRoot.traverse((obj) => {
-      obj.renderOrder = 1;
-    });
-  }
-
-  logLine(
-    `3D occluder created. length=${cylinderLength.toFixed(4)} radius=${cylinderRadius.toFixed(4)} offsetZ=${(-state.modelRefSize * 0.42).toFixed(4)}`
-  );
-}
-
 function placeWatch(pose) {
   if (!state.modelRoot) return;
   const rect = stageEl.getBoundingClientRect();
-  const px = pose.x - rect.width / 2;
-  const py = -(pose.y - rect.height / 2);
-
   state.modelRoot.visible = true;
-  state.modelRoot.position.set(px, py, 0);
+  state.modelRoot.position.set(
+    pose.x - rect.width / 2,
+    -(pose.y - rect.height / 2),
+    0
+  );
   state.modelRoot.scale.setScalar(pose.scale);
-
-  if (state.occluderRoot) {
-    state.occluderRoot.visible = true;
-    state.occluderRoot.position.set(px, py, 0);
-    state.occluderRoot.scale.setScalar(pose.scale);
-    state.occluderRoot.quaternion.copy(state.modelRoot.quaternion);
-  }
 }
 
 function mapLandmark(lm) {
