@@ -1,6 +1,7 @@
-const WATCH_MODEL_PATH = './assets/models/relogio.glb';
+const WATCH_MODEL_PATH = './assets/models/relogio-tryon.glb';
 const HAND_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 const HDR_ENV_PATH = './assets/hdr/glasshouse_interior_4k_blur_exp_sat.hdr';
+const OCCLUDER_MODEL_PATH = './assets/models/relogio-occlusion.glb';
 
 const videoEl = document.getElementById('camera-video');
 const threeCanvas = document.getElementById('three-canvas');
@@ -62,6 +63,7 @@ const state = {
   modelRoot: null,
   modelSize: null,
   modelRefSize: 0.05,
+  occluderRoot: null,
   renderer: null,
   scene: null,
   camera: null,
@@ -193,6 +195,7 @@ async function boot() {
   setupThree();
   await loadEnvironment();
   await loadWatchModel();
+  await loadOccluderModel();
   await initHandLandmarker();
 
   setStatus('Ready');
@@ -205,6 +208,55 @@ async function boot() {
     logLine(`Auto camera start failed: ${error?.message || error}`);
     setStatus('Ready');
     setHint('Tap Start Try-On to continue.');
+  }
+}
+
+
+async function loadOccluderModel() {
+  if (!state.libs?.THREE || !state.libs?.GLTFLoader || !state.modelRoot) return;
+
+  const THREE = state.libs.THREE;
+  const loader = new state.libs.GLTFLoader();
+  logLine(`Loading occluder model from ${OCCLUDER_MODEL_PATH}`);
+
+  try {
+    const gltf = await new Promise((resolve, reject) => {
+      loader.load(OCCLUDER_MODEL_PATH, resolve, undefined, reject);
+    });
+
+    const occluderRoot = gltf.scene;
+    occluderRoot.visible = true;
+
+    occluderRoot.traverse((obj) => {
+      if (!obj.isMesh) return;
+
+      const depthOnlyMat = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        side: THREE.DoubleSide,
+      });
+      depthOnlyMat.colorWrite = false;
+      depthOnlyMat.depthWrite = true;
+      depthOnlyMat.depthTest = true;
+
+      obj.material = depthOnlyMat;
+      obj.renderOrder = 0;
+      obj.frustumCulled = false;
+    });
+
+    // Follow the watch exactly by parenting to the watch root.
+    state.modelRoot.add(occluderRoot);
+    state.occluderRoot = occluderRoot;
+
+    // Ensure watch meshes render after the occluder depth pass.
+    state.modelRoot.traverse((obj) => {
+      if (!obj.isMesh) return;
+      if (state.occluderRoot && state.occluderRoot === obj.parent) return;
+      obj.renderOrder = 1;
+    });
+
+    logLine('Occluder model loaded and attached to watch root.');
+  } catch (error) {
+    logLine(`Occluder model failed: ${error?.message || error}`);
   }
 }
 
@@ -615,6 +667,7 @@ function updateVisibilityOnMiss() {
     state.modelRoot.visible = true;
   } else if (state.misses >= CONFIG.hideAfterMisses) {
     state.modelRoot.visible = false;
+    if (state.occluderRoot) state.occluderRoot.visible = false;
     state.pose = null;
     state.widthHistory = [];
     state.scaleWidthHistory = [];
@@ -625,6 +678,7 @@ function placeWatch(pose) {
   if (!state.modelRoot) return;
   const rect = stageEl.getBoundingClientRect();
   state.modelRoot.visible = true;
+  if (state.occluderRoot) state.occluderRoot.visible = true;
   state.modelRoot.position.set(
     pose.x - rect.width / 2,
     -(pose.y - rect.height / 2),
