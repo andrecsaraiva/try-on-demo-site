@@ -34,13 +34,13 @@ const metricLastHand = document.getElementById('metric-last-hand');
 
 const CONFIG = {
   facingMode: 'environment',
-  modelScaleTrim: 1.5,
+  modelScaleTrim: 1.25,
   rollTrimDeg: 0,
-  wristOffsetTrim: 0.75,
+  wristOffsetTrim: 0.5,
   autoScaleFactor: 1.02,
   keepVisibleMisses: 12,
   hideAfterMisses: 24,
-  minScalePx: 70,
+  minScalePx: 00,
   maxScalePx: 300,
   rotSlerpStable: 0.20,
   rotSlerpFast: 0.34,
