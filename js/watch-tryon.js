@@ -36,20 +36,18 @@ const CONFIG = {
   facingMode: 'environment',
   modelScaleTrim: 1.00,
   rollTrimDeg: 0,
-  wristOffsetTrim: 0.45,
+  wristOffsetTrim: 0.34,
   autoScaleFactor: 1.02,
-  keepVisibleMisses: 90,
-  hideAfterMisses: 240,
+  keepVisibleMisses: 12,
+  hideAfterMisses: 24,
   minScalePx: 70,
-  maxScalePx: 160,
+  maxScalePx: 300,
   rotSlerpStable: 0.20,
   rotSlerpFast: 0.34,
   posAlphaStable: 0.22,
   posAlphaFast: 0.34,
   scaleAlpha: 0.10,
-  sideCompMin: 0.70,
-  reappearScaleAlpha: 0.16,
-  lostHintDelayMisses: 28,
+  sideCompMin: 0.40, // stronger compensation so the watch shrinks less at 90°
   envMapIntensity: 1.0,
 };
 
@@ -74,8 +72,6 @@ const state = {
   lastHandText: '—',
   misses: 0,
   pose: null,
-  lastTrackedScale: 1,
-  lastTrackedAt: 0,
   targetQuat: null,
   correctionQuat: null,
   tmpQuat: null,
@@ -259,13 +255,12 @@ function setupThree() {
     alpha: true,
     antialias: true,
     powerPreference: 'high-performance',
-    logarithmicDepthBuffer: true,
   });
   state.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
   state.scene = new THREE.Scene();
   state.pmremGenerator = new THREE.PMREMGenerator(state.renderer);
-  state.camera = new THREE.OrthographicCamera(-100, 100, 100, -100, 1, 500);
+  state.camera = new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 2000);
   state.camera.position.z = 1000;
 
   const ambient = new THREE.AmbientLight(0xffffff, 0.95);
@@ -325,14 +320,14 @@ async function loadWatchModel() {
         const dims = [size.x, size.y, size.z].sort((a, b) => a - b);
         state.modelRefSize = dims[1] || size.x || 0.05;
 
-        // Material pass: keep physically based reflections usable with the HDR env,
-        // without changing the camera background.
         content.traverse((obj) => {
           if (!obj.isMesh || !obj.material) return;
           const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
           for (const mat of mats) {
-            if ('envMapIntensity' in mat) mat.envMapIntensity = CONFIG.envMapIntensity;
-            if ('metalness' in mat && mat.metalness > 0.1) mat.needsUpdate = true;
+            if ('envMapIntensity' in mat) {
+              mat.envMapIntensity = CONFIG.envMapIntensity;
+              mat.needsUpdate = true;
+            }
           }
         });
 
@@ -468,29 +463,9 @@ function processResults(results) {
   const landmarks = results?.landmarks?.[0];
   if (!landmarks) {
     state.misses += 1;
-    if ([1, 10, 30, 60, 120].includes(state.misses)) {
+    if ([1, 10, 30].includes(state.misses)) {
       logLine(`No hand detected. misses=${state.misses}`);
     }
-
-    // Keep the last tracked pose alive much longer so close-up inspection
-    // does not immediately kill the watch when the fingers leave frame.
-    if (state.pose && state.misses < CONFIG.hideAfterMisses) {
-      state.modelRoot.visible = true;
-
-      // Freeze the last good pose. This does not create new tracking data,
-      // it only keeps the watch visible until fingers come back.
-      placeWatch(state.pose);
-
-      if (state.misses < CONFIG.lostHintDelayMisses) {
-        setStatus('Close-up hold');
-        setHint('Keeping the last tracked watch position while the hand is partially out of frame.');
-      } else {
-        setStatus('Reacquire hand');
-        setHint('Bring fingers back into frame to refresh the tracking.');
-      }
-      return;
-    }
-
     if (state.misses > 10) {
       setStatus('Searching for a wrist…');
       setHint('Show the full hand and wrist. Fingers slightly apart works best.');
@@ -601,8 +576,6 @@ function processResults(results) {
   if (!state.pose) {
     state.pose = { ...target };
     state.modelRoot.quaternion.copy(state.targetQuat);
-    state.lastTrackedScale = targetScale;
-    state.lastTrackedAt = performance.now();
     logLine(
       `First hand detected. width=${handWidthPxRaw.toFixed(2)} stable=${stableHandWidth.toFixed(2)} ` +
       `corrected=${stableCorrectedWidth.toFixed(2)} wristEst=${estimatedWristWidth.toFixed(2)} side=${sideFactor.toFixed(2)} palm=${palmFacing} scale=${targetScale.toFixed(2)}`
