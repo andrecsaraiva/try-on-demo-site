@@ -35,7 +35,7 @@ const CONFIG = {
   facingMode: 'environment',
   modelScaleTrim: 1.00,
   rollTrimDeg: 0,
-  wristOffsetTrim: 0.34,
+  wristOffsetTrim: 0.40,
   autoScaleFactor: 1.02,
   keepVisibleMisses: 12,
   hideAfterMisses: 24,
