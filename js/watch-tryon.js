@@ -35,18 +35,18 @@ const CONFIG = {
   facingMode: 'environment',
   modelScaleTrim: 1.00,
   rollTrimDeg: 0,
-  wristOffsetTrim: 0.45,
+  wristOffsetTrim: 0.34,
   autoScaleFactor: 1.02,
   keepVisibleMisses: 12,
   hideAfterMisses: 24,
   minScalePx: 70,
-  maxScalePx: 240,
+  maxScalePx: 300,
   rotSlerpStable: 0.20,
   rotSlerpFast: 0.34,
   posAlphaStable: 0.22,
   posAlphaFast: 0.34,
   scaleAlpha: 0.10,
-  sideCompMin: 0.58, // stronger compensation so the watch shrinks less at 90°
+  sideCompMin: 0.40, // stronger compensation so the watch shrinks less at 90°
 };
 
 const state = {
