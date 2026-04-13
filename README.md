@@ -1,17 +1,30 @@
-# Watch Try-On Base V24 - Lowered Position
+# Watch Try-On Diagnostic V26
 
-Base used:
-- uploaded `watch-tryon(24).html`
-- uploaded `watch-tryon(23).js`
-- uploaded `watch-tryon(4).css`
-- uploaded `relogio(11).glb`
+Base:
+- uploaded watch-tryon(27).html
+- uploaded watch-tryon(26).js
+- uploaded watch-tryon(5).css
+- uploaded relogio(14).glb
 
-Only change:
-- `wristOffsetTrim` changed from `0.34` to `0.40`
+Changes made:
+1. Added diagnostics panel + live log inside Developer Tools
+2. Enabled `logarithmicDepthBuffer: true` on the WebGLRenderer
+3. Changed `sideCompMin` from `0.40` to `0.58`
+4. Changed `maxScalePx` from `300` to `220`
 
-Why:
-- moves the watch lower toward the forearm / away from the hand.
+What the panel shows:
+- model ref size
+- model bounding size
+- current scale
+- target scale
+- side factor
+- estimated wrist width
+- camera near/far
+- material summary:
+  - transparent count
+  - double-sided count
+  - depthWrite disabled count
+  - non-default blending count
 
-Note:
-- exact real-world `2 cm` is not possible in this tracking setup because the placement is camera-relative, not physically calibrated.
-- this is the closest clean adjustment in the current system.
+Goal:
+- diagnose whether the flicker is being driven by depth/render precision or by side-view scale blow-up.

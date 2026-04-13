@@ -1,4 +1,4 @@
-const WATCH_MODEL_PATH = './assets/models/relogio-tryon.glb';
+const WATCH_MODEL_PATH = './assets/models/relogio.glb';
 const HAND_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 
 const videoEl = document.getElementById('camera-video');
@@ -30,6 +30,14 @@ const metricCamera = document.getElementById('metric-camera');
 const metricVideo = document.getElementById('metric-video');
 const metricDetections = document.getElementById('metric-detections');
 const metricLastHand = document.getElementById('metric-last-hand');
+const metricModelRef = document.getElementById('metric-model-ref');
+const metricModelSize = document.getElementById('metric-model-size');
+const metricScale = document.getElementById('metric-scale');
+const metricTargetScale = document.getElementById('metric-target-scale');
+const metricSideFactor = document.getElementById('metric-side-factor');
+const metricWristEst = document.getElementById('metric-wrist-est');
+const metricCameraRange = document.getElementById('metric-camera-range');
+const metricMaterials = document.getElementById('metric-materials');
 
 const CONFIG = {
   facingMode: 'environment',
@@ -40,13 +48,13 @@ const CONFIG = {
   keepVisibleMisses: 12,
   hideAfterMisses: 24,
   minScalePx: 70,
-  maxScalePx: 300,
+  maxScalePx: 220,
   rotSlerpStable: 0.20,
   rotSlerpFast: 0.34,
   posAlphaStable: 0.22,
   posAlphaFast: 0.34,
   scaleAlpha: 0.10,
-  sideCompMin: 0.40, // stronger compensation so the watch shrinks less at 90°
+  sideCompMin: 0.58, // diagnostic: reduce side-view blow-up
 };
 
 const state = {
@@ -78,6 +86,7 @@ const state = {
   logLines: [],
   widthHistory: [],
   scaleWidthHistory: [],
+  diagLastLogTime: 0,
 };
 
 watchScaleOutput.textContent = Number(watchScaleSlider.value).toFixed(2);
@@ -248,12 +257,14 @@ function setupThree() {
     alpha: true,
     antialias: true,
     powerPreference: 'high-performance',
+    logarithmicDepthBuffer: true,
   });
   state.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
   state.scene = new THREE.Scene();
   state.camera = new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 2000);
   state.camera.position.z = 1000;
+  if (metricCameraRange) metricCameraRange.textContent = `${state.camera.near} / ${state.camera.far}`;
 
   const ambient = new THREE.AmbientLight(0xffffff, 1.32);
   state.scene.add(ambient);
@@ -295,10 +306,31 @@ async function loadWatchModel() {
         const dims = [size.x, size.y, size.z].sort((a, b) => a - b);
         state.modelRefSize = dims[1] || size.x || 0.05;
 
+        // Material diagnostics
+        let transparentCount = 0;
+        let doubleSidedCount = 0;
+        let depthWriteOffCount = 0;
+        let blendCount = 0;
+
+        content.traverse((obj) => {
+          if (!obj.isMesh || !obj.material) return;
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const mat of mats) {
+            if (mat.transparent) transparentCount += 1;
+            if (mat.side === THREE.DoubleSide) doubleSidedCount += 1;
+            if (mat.depthWrite === false) depthWriteOffCount += 1;
+            if (mat.blending && mat.blending !== THREE.NormalBlending) blendCount += 1;
+          }
+        });
+
+        if (metricModelRef) metricModelRef.textContent = state.modelRefSize.toFixed(4);
+        if (metricModelSize) metricModelSize.textContent = `${size.x.toFixed(3)} × ${size.y.toFixed(3)} × ${size.z.toFixed(3)}`;
+        if (metricMaterials) metricMaterials.textContent = `transp:${transparentCount} ds:${doubleSidedCount} dwOff:${depthWriteOffCount} blend:${blendCount}`;
+
         state.scene.add(root);
         state.modelLoaded = true;
 
-        logLine(`Watch model loaded. Size=${size.x.toFixed(4)} x ${size.y.toFixed(4)} x ${size.z.toFixed(4)} ref=${state.modelRefSize.toFixed(4)}`);
+        logLine(`Watch model loaded. Size=${size.x.toFixed(4)} x ${size.y.toFixed(4)} x ${size.z.toFixed(4)} ref=${state.modelRefSize.toFixed(4)} mats[t=${transparentCount},ds=${doubleSidedCount},dwOff=${depthWriteOffCount},blend=${blendCount}]`);
         resolve();
       },
       undefined,
@@ -531,6 +563,10 @@ function processResults(results) {
   );
   const targetScale = desiredWidthPx / Math.max(state.modelRefSize, 0.001);
 
+  if (metricSideFactor) metricSideFactor.textContent = sideFactor.toFixed(3);
+  if (metricWristEst) metricWristEst.textContent = estimatedWristWidth.toFixed(2);
+  if (metricTargetScale) metricTargetScale.textContent = targetScale.toFixed(2);
+
   const target = {
     x: anchor2.x,
     y: anchor2.y,
@@ -559,6 +595,14 @@ function processResults(results) {
   }
 
   placeWatch(state.pose);
+  if (metricScale) metricScale.textContent = state.pose.scale.toFixed(2);
+
+  const nowDiag = performance.now();
+  if (nowDiag - state.diagLastLogTime > 1000) {
+    logLine(`diag scale=${state.pose.scale.toFixed(2)} target=${targetScale.toFixed(2)} side=${sideFactor.toFixed(3)} wrist=${estimatedWristWidth.toFixed(2)} rawWidth=${handWidthPxRaw.toFixed(2)}`);
+    state.diagLastLogTime = nowDiag;
+  }
+
   setStatus(`${handedness} wrist detected`);
   setHint('Move slowly. Palm/back flips and side scale should be more correct now.');
 
