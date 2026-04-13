@@ -9,11 +9,11 @@ const WATCH_TRYON_URL = new URL('./watch-tryon.html', window.location.href).href
 
 const INITIAL_CAMERA_ORBIT = '0deg 75deg auto';
 const INITIAL_FIELD_OF_VIEW = '28deg';
-const INITIAL_EXPOSURE = '1.12';
+const INITIAL_EXPOSURE = '2';
 
 const LEGACY_EFFECTS = {
   enabled: true,
-  preset: 'strong',
+  preset: 'subtle',
 };
 
 const PRESETS = {
