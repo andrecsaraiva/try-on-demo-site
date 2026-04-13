@@ -1,25 +1,16 @@
-# Watch Try-On 3D Occluder V19
+# Watch Try-On 3D Occluder V20
 
-This version keeps the working v16 tracking / rotation / scale logic and replaces the failed 2D occlusion idea with a true 3D depth occluder.
+Focused only on two refinements:
 
-## What changed
-- added an invisible cylinder-based wrist occluder directly in the Three.js scene
-- the occluder:
-  - follows the same position as the watch
-  - follows the same quaternion as the watch
-  - sits slightly inside the watch volume
-  - writes only depth, not color
-- this hides the back half of the watch/strap instead of drawing a flat 2D mask over the whole model
+- move the watch a bit lower toward the forearm
+- make the 3D wrist occluder smaller and deeper so it stops eating the watch face
 
-## What did NOT change
-- palm/dorsum logic
-- wrist anchor logic
-- watch rotation logic
-- watch scale logic
+## Changes
+- `wristOffsetTrim`: 0.34 -> 0.37
+- occluder length reduced
+- occluder radius reduced
+- occluder depth pushed further behind the watch
+- occluder shifted slightly more toward the forearm
 
-## Notes
-This is a much more correct approach than the previous 2D mask. If the occluder shape needs refinement, the next tuning should touch only:
-- cylinder length
-- cylinder radius
-- local X offset
-- local Z depth offset
+## Goal
+Keep the front dial visible, while only hiding the strap / back portion that should pass into the wrist.

@@ -35,7 +35,7 @@ const CONFIG = {
   facingMode: 'environment',
   modelScaleTrim: 1.00,
   rollTrimDeg: 0,
-  wristOffsetTrim: 0.34,
+  wristOffsetTrim: 0.37,
   autoScaleFactor: 1.02,
   keepVisibleMisses: 12,
   hideAfterMisses: 24,
@@ -620,18 +620,18 @@ function createOccluder() {
 
   // Dimensions are expressed in model-local units, then multiplied by pose.scale.
   // Tuned to hide only the part of the watch that goes "into" the wrist.
-  const cylinderLength = state.modelRefSize * 1.55;
-  const cylinderRadius = state.modelRefSize * 0.42;
+  const cylinderLength = state.modelRefSize * 1.28;
+  const cylinderRadius = state.modelRefSize * 0.26;
 
-  mesh.scale.set(cylinderLength, cylinderRadius * 2.0, cylinderRadius * 2.0);
+  mesh.scale.set(cylinderLength, cylinderRadius * 2.0, cylinderRadius * 1.7);
 
   // Push the occluder into the wrist volume, behind the visible face of the watch.
   // Local Z is the watch face normal.
-  mesh.position.set(0, 0, -state.modelRefSize * 0.42);
+  mesh.position.set(0, 0, -state.modelRefSize * 0.62);
 
   // Slightly bias toward the forearm so the strap disappears under the wrist,
   // without eating too much of the front dial.
-  mesh.position.x = -state.modelRefSize * 0.06;
+  mesh.position.x = -state.modelRefSize * 0.12;
 
   mesh.renderOrder = 0;
   mesh.frustumCulled = false;
