@@ -1,19 +1,19 @@
 console.log('MAIN JS CARREGADO - WATCH SPLIT V1');
 
 const MODEL_FILE_PATH = './assets/models/relogio.glb';
-const USE_LOCAL_HDR = false;
-const LOCAL_HDR_PATH = './assets/hdr/studio.hdr';
+const USE_LOCAL_HDR = true;
+const LOCAL_HDR_PATH = './assets/hdr/glasshouse_interior_4k_blur_exp_sat.hdr';
 
 const AR_EXPERIENCE_URL = new URL('./ar-view.html', window.location.href).href;
 const WATCH_TRYON_URL = new URL('./watch-tryon.html', window.location.href).href;
 
 const INITIAL_CAMERA_ORBIT = '0deg 75deg auto';
 const INITIAL_FIELD_OF_VIEW = '28deg';
-const INITIAL_EXPOSURE = '1.12';
+const INITIAL_EXPOSURE = '2';
 
 const LEGACY_EFFECTS = {
   enabled: true,
-  preset: 'strong',
+  preset: 'subtle',
 };
 
 const PRESETS = {
