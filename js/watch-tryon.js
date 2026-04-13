@@ -1,4 +1,4 @@
-const WATCH_MODEL_PATH = './assets/models/relogio.glb';
+const WATCH_MODEL_PATH = './assets/models/relogio-tryon.glb';
 const HAND_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 
 const videoEl = document.getElementById('camera-video');
