@@ -34,9 +34,9 @@ const metricLastHand = document.getElementById('metric-last-hand');
 
 const CONFIG = {
   facingMode: 'environment',
-  modelScaleTrim: 1.00,
+  modelScaleTrim: 1.5,
   rollTrimDeg: 0,
-  wristOffsetTrim: 0.34,
+  wristOffsetTrim: 0.75,
   autoScaleFactor: 1.02,
   keepVisibleMisses: 12,
   hideAfterMisses: 24,
