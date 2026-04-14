@@ -3,13 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AR Product Preview</title>
-  <meta name="description" content="Android AR product preview with Scene Viewer." />
+  <title>AR Watch Preview</title>
+  <meta name="description" content="Android AR watch preview with high-quality 3D preview and Scene Viewer." />
 
-  <script
-    type="module"
-    src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"
-  ></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.174.0/build/three.module.js"
+      }
+    }
+  </script>
+
+  <script type="module" src="https://unpkg.com/@google/model-viewer@4.1.0/dist/model-viewer-module.min.js"></script>
+  <script type="module" src="https://unpkg.com/@google/model-viewer-effects@1.5.0/dist/model-viewer-effects.min.js"></script>
 
   <style>
     :root {
@@ -116,15 +122,18 @@
       box-shadow: 0 8px 20px rgba(205,220,123,0.35);
     }
 
-    .ar-button:active {
-      background: var(--accent-strong);
-    }
+    .ar-button:active { background: var(--accent-strong); }
 
     .small-note {
       font-size: 12px;
       color: var(--muted);
       line-height: 1.5;
       text-align: center;
+    }
+
+    .viewer-shell {
+      position: relative;
+      background: var(--bg);
     }
 
     model-viewer {
@@ -134,6 +143,13 @@
       background: var(--bg);
       --poster-color: transparent;
       display: block;
+    }
+
+    .viewer-note {
+      padding: 0 18px 18px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
     }
 
     .note {
@@ -146,9 +162,7 @@
       color: var(--muted);
     }
 
-    .note strong {
-      color: var(--text);
-    }
+    .note strong { color: var(--text); }
 
     .note code {
       background: #f2f2ec;
@@ -162,15 +176,15 @@
 <body>
   <div class="page">
     <div class="topbar">
-      <div class="title">AR Product Preview</div>
-      <div class="subtitle">Preview the model below, then tap the highlighted button to launch the camera experience on Android.</div>
+      <div class="title">AR Watch Preview</div>
+      <div class="subtitle">Preview the same watch model used on page 1, then launch the Android camera AR experience.</div>
     </div>
 
     <div class="shell">
       <div class="viewer-card">
         <div class="hero-copy">
-          <h1>Launch the camera to place the product in your space</h1>
-          <p>This page is only the preview step. The button below opens the Android AR viewer with plane detection and object placement.</p>
+          <h1>Launch the camera to place the watch in your space</h1>
+          <p>This page stays separate from the try-on flow. It gives you a high-quality 3D preview first, then opens Android Scene Viewer for stable surface placement.</p>
         </div>
 
         <div class="cta-wrap">
@@ -178,29 +192,59 @@
           <div class="small-note">If nothing happens, make sure you are on Android with AR support and open this page in Chrome.</div>
         </div>
 
-        <model-viewer
-          id="preview-viewer"
-          src="./assets/models/bag.glb"
-          alt="AR preview model"
-          camera-controls
-          shadow-intensity="10"
-          shadow-softness="0.0"
-          exposure="1.25"
-          environment-image="./assets/hdr/studio.hdr"
-          interaction-prompt="none"
-          camera-orbit="0deg 75deg auto"
-          field-of-view="28deg"
-          loading="eager"
-          reveal="auto">
-        </model-viewer>
+        <div class="viewer-shell">
+          <model-viewer
+            id="preview-viewer"
+            src="./assets/models/relogio.glb"
+            alt="AR watch preview model"
+            camera-controls
+            touch-action="pan-y"
+            shadow-intensity="1"
+            shadow-softness="0.85"
+            exposure="2"
+            environment-image="./assets/hdr/glasshouse_interior_4k_blur_exp_sat.hdr"
+            interaction-prompt="none"
+            camera-orbit="0deg 75deg auto"
+            field-of-view="28deg"
+            loading="eager"
+            reveal="auto"
+          >
+            <effect-composer id="composer" render-mode="quality">
+              <smaa-effect id="fx-smaa"></smaa-effect>
+              <ssao-effect
+                id="fx-ssao"
+                intensity="0.55"
+                radius="0.16"
+                luminance-influence="0.5"
+                bias="0.03"
+              ></ssao-effect>
+              <bloom-effect
+                id="fx-bloom"
+                strength="0.16"
+                threshold="0.82"
+                radius="0.42"
+              ></bloom-effect>
+              <color-grade-effect
+                id="fx-color"
+                tonemapping="aces_filmic"
+                contrast="0.04"
+                saturation="0.05"
+              ></color-grade-effect>
+            </effect-composer>
+          </model-viewer>
+        </div>
+
+        <div class="viewer-note">
+          This preview uses the same watch GLB and the same local HDR/environment approach as the page 1 viewer.
+        </div>
       </div>
 
       <div class="note">
-        <strong>Android:</strong> this page uses a native Scene Viewer launch for AR, which is better suited to stable surface placement and walk-around viewing than the current web AR behavior. The GLB file used is <code>assets/models/bag.glb</code>.
+        <strong>Android:</strong> this page uses a native Scene Viewer launch for AR, which is better suited to stable surface placement and walk-around viewing than the wrist try-on. The GLB file used is <code>assets/models/relogio.glb</code>.
       </div>
 
       <div class="note">
-        <strong>iPhone / iPad:</strong> not enabled in this version. We can add a separate Quick Look path later with <code>bolsa.usdz</code>.
+        <strong>iPhone / iPad:</strong> not enabled in this version. We can add a separate Quick Look path later with a <code>.usdz</code> export if needed.
       </div>
     </div>
   </div>
@@ -209,7 +253,7 @@
     const button = document.getElementById('open-scene-viewer-btn');
 
     function buildSceneViewerIntent() {
-      const modelUrl = new URL('./assets/models/bag.glb', window.location.href).href;
+      const modelUrl = new URL('./assets/models/relogio.glb', window.location.href).href;
       const fallbackUrl = encodeURIComponent(window.location.href);
 
       return 'intent://arvr.google.com/scene-viewer/1.0?file='
